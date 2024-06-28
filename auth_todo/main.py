@@ -3,6 +3,6 @@ from fastapi import FastAPI
 app = FastAPI()
 
 
-@app.get('/')
+@app.get("/")
 def get_home():
-    return {'data': 'Hello world'}
+    return {"data": "Hello world"}

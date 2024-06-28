@@ -1,0 +1,38 @@
+name: Run linters
+
+on: push
+
+jobs:
+  run-linters:
+    name: Run linters
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.12
+
+      - name: Install Python dependencies
+        run: pip install black flake8 mypy
+
+      - name: Run black flake8 mypy
+        uses: wearerequired/lint-action@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          black: true
+          flake8: true
+          mypy: true
+
+      - name: Run isort
+        uses: isort/isort-action@master
+        with:
+          requirementsFiles: "requirements.txt"
+
+      - name: Run pylint
+        uses: fylein/python-pylint-github-action@v1
+        with:
+          lint-path: core/core

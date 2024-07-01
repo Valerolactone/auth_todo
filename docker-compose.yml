@@ -13,7 +13,7 @@ services:
     volumes:
       - pg_data_auth:/var/lib/postgresql/data
 
-  todo_core:
+  todo_auth:
     build:
       context: .
     ports:

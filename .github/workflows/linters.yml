@@ -29,8 +29,6 @@ jobs:
 
       - name: Run isort
         uses: isort/isort-action@master
-        with:
-          requirementsFiles: "requirements.txt"
 
       - name: Run pylint
         uses: fylein/python-pylint-github-action@v1

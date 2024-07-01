@@ -32,5 +32,3 @@ jobs:
 
       - name: Run pylint
         uses: fylein/python-pylint-github-action@v1
-        with:
-          lint-path: core/core

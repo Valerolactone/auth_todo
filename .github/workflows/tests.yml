@@ -2,7 +2,7 @@ name: Run tests
 
 on:
   push:
-    branches: [ "develop"]
+    branches: [ "develop", 'fix-github-actions']
   pull_request:
     branches: [ "develop" ]
 

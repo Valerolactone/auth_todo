@@ -1,0 +1,24 @@
+name: Run tests
+
+on:
+  push:
+    branches: [ "develop", 'fix-github-actions']
+  pull_request:
+    branches: [ "develop" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout branch
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+    - name: Install poetry
+      uses: abatilo/actions-poetry@v2
+    - name: Install dependencies
+      run: poetry install
+    - name: Test with pytest
+      run: poetry run pytest tests/

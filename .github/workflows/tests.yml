@@ -2,23 +2,55 @@ name: Run tests
 
 on:
   push:
-    branches: [ "develop", 'fix-github-actions']
+    branches: [ "develop"]
   pull_request:
     branches: [ "develop" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s 
+          --health-timeout 5s 
+          --health-retries 5
+
     steps:
     - name: Checkout branch
       uses: actions/checkout@v4
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: 3.12
+
     - name: Install poetry
-      uses: abatilo/actions-poetry@v2
+      uses: snok/install-poetry@v1
+
     - name: Install dependencies
       run: poetry install
+
+    - name: Run migrations
+      run: alembic upgrade head
+      env:
+        DATABASE_URL: f"postgresql://postgres:postgres@localhost:5432/postgres"
+
     - name: Test with pytest
+      env:
+        DEBUG: ${{ secrets.DEBUG }}
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        DB_HOST: ${{ secrets.POSTGRES_HOST }}
+        DB_NAME: ${{ secrets.POSTGRES_DB }}
+        DB_USER: ${{ secrets.POSTGRES_USER }}
+        DB_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       run: poetry run pytest tests/

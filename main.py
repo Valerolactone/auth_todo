@@ -1,6 +1,10 @@
 import uvicorn
-from fastapi import FastAPI, APIRouter
-from app.routers import user_router
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI
+
+from app.routers import login_router, user_router
+
+load_dotenv()
 
 app = FastAPI(title='TODO-Auth')
 
@@ -11,7 +15,8 @@ def health_check():
 
 
 main_api_router = APIRouter()
-main_api_router.include_router(user_router, prefix="/users")
+main_api_router.include_router(user_router, prefix="/users", tags=["users"])
+main_api_router.include_router(login_router, prefix="/login", tags=["login"])
 
 app.include_router(main_api_router)
 

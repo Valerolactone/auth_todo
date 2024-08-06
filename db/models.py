@@ -5,8 +5,8 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
-    func,
     Text,
+    func,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -21,10 +21,10 @@ class User(Base):
     last_name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     hashed_password = Column(String, nullable=False)
-    is_active = Column(Boolean(), default=True)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     deleted_at = Column(DateTime(timezone=True), nullable=True)
-    role_id = Column(Integer, ForeignKey('roles.role_pk'))
+    role_id = Column(Integer, ForeignKey('roles.role_pk'), nullable=True)
 
     role = relationship('Role', back_populates='users')
 

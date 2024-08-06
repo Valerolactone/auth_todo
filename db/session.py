@@ -1,14 +1,14 @@
-from os import environ
-from typing import Generator
+import os
+from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-DB_NAME = environ.get("DB_NAME")
-DB_USER = environ.get("DB_USER")
-DB_PASSWORD = environ.get("DB_PASSWORD")
-DB_HOST = environ.get("DB_HOST")
-DB_PORT = environ.get("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
 
 SQLALCHEMY_DATABASE_URL = (
     f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -24,7 +24,7 @@ engine = create_async_engine(
 async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
-async def get_db() -> Generator:
+async def get_db() -> AsyncGenerator:
     try:
         session: AsyncSession = async_session()
         yield session

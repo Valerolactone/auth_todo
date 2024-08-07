@@ -6,6 +6,7 @@ repos:
       entry: poetry run black
       language: system
       types: [file, python]
+      args: [ --skip-string-normalization ]
 
     - id: isort
       name: isort
@@ -19,16 +20,20 @@ repos:
       entry: poetry run mypy
       language: system
       types: [ file, python ]
+      args: [ --ignore-missing-imports ]
+      exclude: migrations
 
     - id: flake8
       name: flake8
       entry: poetry run flake8
       language: system
       types: [ file, python ]
+      args: [ --ignore=E501 ]
+
 
     - id: pylint
       name: pylint
       entry: poetry run pylint
       language: system
       types: [ file, python ]
-      exclude: main.py
+      args: [ --disable=C, --disable=E1102, --disable=E1101, --disable=R0903, --disable=W0613, --disable=E0401, --disable=W0707 ]

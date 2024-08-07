@@ -27,8 +27,8 @@ jobs:
           flake8: true
           mypy: true
 
-      - name: Run isort
-        uses: isort/isort-action@master
-
       - name: Run pylint
         uses: fylein/python-pylint-github-action@v1
+
+      - name: Run isort
+        uses: isort/isort-action@master

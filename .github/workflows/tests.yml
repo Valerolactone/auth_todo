@@ -7,7 +7,7 @@ on:
     branches: [ "develop" ]
 
 jobs:
-  build:
+  tests:
     runs-on: ubuntu-latest
 
     services:
@@ -40,19 +40,23 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
+    - name: Wait for PostgreSQL to be ready
+      run: |
+        while ! pg_isready -h localhost -p 5432 -U test_user; do
+          sleep 1
+        done
+
     - name: Install alembic
       run: poetry add alembic
 
     - name: Run migrations
-      run: alembic upgrade head
       env:
-        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      run: |
+        alembic upgrade head
 
     - name: Test with pytest
       env:
-        DEBUG: ${{ secrets.DEBUG }}
-        DB_HOST: ${{ secrets.POSTGRES_HOST }}
-        DB_NAME: ${{ secrets.POSTGRES_DB }}
-        DB_USER: ${{ secrets.POSTGRES_USER }}
-        DB_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-      run: poetry run pytest tests/
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      run: |
+        poetry run pytest

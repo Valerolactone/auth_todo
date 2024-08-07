@@ -4,10 +4,9 @@ from typing import Union
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from schemas import UserCreate, UserData
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import Hasher
 
+from app.schemas import UserCreate, UserData
 from db.dals import UserDAL
 from db.models import User
 
@@ -29,6 +28,7 @@ class UserService:
                 first_name=body.first_name,
                 last_name=body.last_name,
                 email=body.email,
+                password=body.password,
             )
             return UserData(
                 user_pk=user.user_pk,
@@ -44,32 +44,36 @@ class AuthenticationService:
 
     _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
-    async def _get_user_by_email_for_auth(self, email: str):
+    @property
+    def _credentials_exception(self):
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+
+    async def _get_user_by_email(self, email: str):
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             return await user_dal.get_user_by_email(email=email)
 
     async def authenticate_user(self, email: str, password: str) -> Union[User, None]:
-        user = await self._get_user_by_email_for_auth(email=email)
-        if user is None or not Hasher.verify_password(password, user.hashed_password):
+        user = await self._get_user_by_email(email=email)
+        if user is None or not user.verify_password(password):
             return
         return user
 
-    async def get_current_user_from_token(self, token: str = Depends(_oauth2_scheme)):
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-        )
+    async def get_user_email_from_token(
+        self, token: str = Depends(_oauth2_scheme)
+    ) -> str:
         try:
             payload = jwt.decode(
-                token, os.getenv("SECRET_KEY"), algorithms=os.getenv("ALGORITHM")
+                token,
+                os.getenv("JWT_SECRET_KEY"),
+                algorithms=os.getenv("JWT_ALGORITHM"),
             )
             email: str = payload.get("sub")
             if email is None:
-                raise credentials_exception
+                raise self._credentials_exception
         except JWTError:
-            raise credentials_exception
-        user = await self._get_user_by_email_for_auth(email=email)
-        if user is None:
-            raise credentials_exception
-        return user
+            raise self._credentials_exception
+        return email

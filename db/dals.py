@@ -13,17 +13,14 @@ class UserDAL:
         self.db_session = db_session
 
     async def create_user(
-            self,
-            first_name: str,
-            last_name: str,
-            email: str,
-            hashed_password: str,
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password: str,
     ) -> User:
         new_user = User(
-            first_name=first_name,
-            last_name=last_name,
-            email=email,
-            hashed_password=hashed_password,
+            first_name=first_name, last_name=last_name, email=email, password=password
         )
         self.db_session.add(new_user)
         await self.db_session.flush()
@@ -33,9 +30,9 @@ class UserDAL:
         query = select(User).where(User.email == email)
         result = await self.db_session.execute(query)
         user_row = result.fetchone()
-        if user_row is not None:
-            return user_row[0]
-        return
+        if user_row is None:
+            return
+        return user_row[0]
 
     async def get_users_emails_for_notification(self, users_ids: list[int]):
         query = select(User).filter(User.user_pk.in_(users_ids))

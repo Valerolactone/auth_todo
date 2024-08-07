@@ -18,15 +18,23 @@ user_router = APIRouter()
 login_router = APIRouter()
 
 
-@user_router.get(
+@user_router.post(
     "/notification_emails",
     response_model=UsersWithEmails,
     status_code=status.HTTP_200_OK,
 )
 async def get_users_emails(users_ids: UserIds, db: AsyncSession = Depends(get_db)):
+    users_with_emails = {}
     service = UserService(db)
-    emails = await service.get_users_with_emails(users_ids)
-    return emails
+    users = await service.get_users_with_emails(users_ids.ids)
+
+    if not users:
+        raise HTTPException(status_code=404, detail="Users not found")
+
+    for user_row in users:
+        users_with_emails[user_row[0].user_pk] = user_row[0].email
+
+    return {"users": users_with_emails}
 
 
 @user_router.post(
@@ -56,7 +64,12 @@ async def login_for_access_token(
         hours=int(os.getenv("ACCESS_TOKEN_EXPIRATION_TIME"))
     )
     access_token = create_access_token(
-        data={"sub": user.email},
+        data={
+            "sub": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "user_pk": user.user_pk,
+        },
         expires_delta=access_token_expires,
     )
     return {"access_token": access_token, "token_type": "bearer"}

@@ -16,11 +16,11 @@ class UserService:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def get_users_with_emails(self, users_ids: list[int]) -> dict[int, str]:
+    async def get_users_with_emails(self, users_ids: list[int]):
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
-            users_emails = await user_dal.get_users_emails_for_notification(users_ids)
-            return users_emails
+            users = await user_dal.get_users_emails_for_notification(users_ids)
+            return users
 
     async def create_new_user(self, body: UserCreate) -> UserData:
         async with self.db_session.begin():

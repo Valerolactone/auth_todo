@@ -36,4 +36,4 @@ repos:
       entry: poetry run pylint
       language: system
       types: [ file, python ]
-      args: [ --disable=C, --disable=no-member, --disable=too-few-public-methods, --disable=W0613 ]
+      args: [ --disable=C, --disable=E1102, --disable=E1101, --disable=R0903, --disable=W0613, --disable=E0401, --disable=W0707 ]

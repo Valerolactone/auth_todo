@@ -35,11 +35,10 @@ class UserDAL:
         user_row = result.fetchone()
         if user_row is not None:
             return user_row[0]
+        return
 
-    async def get_users_emails_for_notification(
-        self, users_ids: list[int]
-    ) -> dict[int:str]:
-        query = select(User.user_pk, User.email).filter(User.user_pk.in_(users_ids))
+    async def get_users_emails_for_notification(self, users_ids: list[int]):
+        query = select(User).filter(User.user_pk.in_(users_ids))
         result = await self.db_session.execute(query)
-        users_emails = result.fetchall()
-        return users_emails
+        users = result.fetchall()
+        return users

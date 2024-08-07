@@ -40,12 +40,6 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    - name: Wait for PostgreSQL to be ready
-      run: |
-        while ! pg_isready -h localhost -p 5432 -U postgres; do
-          sleep 1
-        done
-
     - name: Install alembic
       run: poetry add alembic
 

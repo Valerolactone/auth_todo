@@ -2,7 +2,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI
 
-from app.routers import login_router, user_router
+from app.routers import user_router
 
 load_dotenv()
 
@@ -16,8 +16,6 @@ def health_check():
 
 main_api_router = APIRouter()
 main_api_router.include_router(user_router, prefix="/users", tags=["users"])
-main_api_router.include_router(login_router, prefix="/login", tags=["login"])
-
 app.include_router(main_api_router)
 
 if __name__ == "__main__":

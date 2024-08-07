@@ -35,8 +35,3 @@ class ExpandUserData(UserData):
     created_at: datetime
     deleted_at: datetime
     is_active: bool
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str

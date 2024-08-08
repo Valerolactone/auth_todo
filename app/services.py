@@ -1,14 +1,14 @@
 import os
-from typing import Union
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from jwt import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas import UserCreate, UserData
-from db.dals import UserDAL
-from db.models import User
+from db.dals import TokenDAL, UserDAL
+from db.models import RefreshToken, User
 
 
 class UserService:
@@ -21,7 +21,7 @@ class UserService:
             users = await user_dal.get_users_emails_for_notification(users_ids)
             return users
 
-    async def create_new_user(self, body: UserCreate) -> UserData:
+    async def register(self, body: UserCreate) -> UserData:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             user = await user_dal.create_user(
@@ -37,6 +37,11 @@ class UserService:
                 email=user.email,
             )
 
+    async def get_user_by_pk(self, user_pk: int) -> User | None:
+        async with self.db_session.begin():
+            user_dal = UserDAL(self.db_session)
+            return await user_dal.get_user_by_pk(user_pk=user_pk)
+
 
 class AuthenticationService:
     def __init__(self, db_session: AsyncSession):
@@ -51,12 +56,12 @@ class AuthenticationService:
             detail="Could not validate credentials",
         )
 
-    async def _get_user_by_email(self, email: str):
+    async def _get_user_by_email(self, email: str) -> User | None:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             return await user_dal.get_user_by_email(email=email)
 
-    async def authenticate_user(self, email: str, password: str) -> Union[User, None]:
+    async def authenticate_user(self, email: str, password: str) -> User | None:
         user = await self._get_user_by_email(email=email)
         if user is None or not user.verify_password(password):
             return
@@ -74,6 +79,11 @@ class AuthenticationService:
             email: str = payload.get("sub")
             if email is None:
                 raise self._credentials_exception
-        except JWTError:
+        except PyJWTError:
             raise self._credentials_exception
         return email
+
+    async def get_user_refresh_token(self, user_pk: int) -> RefreshToken | None:
+        async with self.db_session.begin():
+            token_dal = TokenDAL(self.db_session)
+            return await token_dal.get_user_refresh_token(user_pk=user_pk)

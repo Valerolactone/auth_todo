@@ -1,14 +1,7 @@
+from datetime import datetime
+
 from passlib.context import CryptContext
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    func,
-)
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import declarative_base, relationship
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -25,7 +18,7 @@ class User(Base):
     email = Column(String, nullable=False, unique=True)
     _password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     role_id = Column(Integer, ForeignKey('roles.role_pk'), nullable=True)
 
@@ -67,3 +60,13 @@ class RolePermission(Base):
     role_permission_pk = Column(Integer, primary_key=True, autoincrement=True)
     role_pk = Column(Integer, ForeignKey('roles.role_pk'))
     permission_pk = Column(Integer, ForeignKey('permissions.permission_pk'))
+
+
+class RefreshToken(Base):
+    __tablename__ = 'refresh_tokens'
+    refresh_token_pk = Column(Integer, primary_key=True, autoincrement=True)
+    user_pk = Column(Integer, ForeignKey('users.user_pk'), nullable=False)
+    token = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    is_revoked = Column(Boolean, default=False)

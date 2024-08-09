@@ -1,6 +1,6 @@
 from typing import Sequence
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import RefreshToken, User
@@ -59,12 +59,16 @@ class TokenDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def get_user_refresh_token(self, user_pk: int) -> RefreshToken | None:
+    async def get_refresh_token(self, token: str) -> RefreshToken | None:
         query = select(RefreshToken).where(
-            RefreshToken.user_pk == user_pk, RefreshToken.is_revoked == False
+            and_(RefreshToken.token == token, RefreshToken.is_revoked == False)
         )
         result = await self.db_session.execute(query)
         refresh_token_row = result.fetchone()
         if refresh_token_row is None:
             return
         return refresh_token_row[0]
+
+    async def validate_refresh_token(self, token: str) -> bool:
+        refresh_token = await self.get_refresh_token(token)
+        return False if refresh_token is None else True

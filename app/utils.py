@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,7 @@ from db.models import RefreshToken
 from db.session import get_db
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> dict:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -21,9 +21,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             minutes=int(os.getenv("ACCESS_TOKEN_EXPIRATION_TIME"))
         )
     to_encode.update({"exp": expire})
-    return jwt.encode(
+    token = jwt.encode(
         to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
     )
+    return {"access_token": token, "access_token_expires_at": expire}
 
 
 def create_refresh_token(data: dict) -> dict:
@@ -65,8 +66,8 @@ async def update_refresh_token_in_db(
     expires_at = refresh_token_data["expires_at"]
     token_dal = TokenDAL(db)
     try:
-        db_refresh_token = await token_dal.get_user_refresh_token(data["user_pk"])
-        if db_refresh_token is None:
+        db_refresh_token = await token_dal.get_refresh_token(data["user_pk"])
+        if not db_refresh_token:
             raise HTTPException(status_code=404, detail="Refresh token not found")
 
         db_refresh_token.token = refresh_token
@@ -79,3 +80,11 @@ async def update_refresh_token_in_db(
         raise HTTPException(status_code=500, detail=str(e))
 
     return refresh_token
+
+
+async def get_refresh_token_from_headers(authorization: str = Header(None)):
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            return token
+    raise HTTPException(status_code=403, detail="Could not validate credentials")

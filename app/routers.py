@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from utils import (
     add_refresh_token_to_db,
     create_access_token,
+    get_refresh_token_from_headers,
     update_refresh_token_in_db,
 )
 
 from app.services import AuthenticationService, UserService
+from db.dals import TokenDAL
 from db.session import get_db
 
 logger = getLogger(__name__)
@@ -25,10 +27,10 @@ login_router = APIRouter()
     response_model=UsersWithEmails,
     status_code=status.HTTP_200_OK,
 )
-async def get_users_emails(users_ids: UserIds, db: AsyncSession = Depends(get_db)):
+async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
     users_with_emails = {}
     service = UserService(db)
-    users = await service.get_users_with_emails(users_ids.ids)
+    users = await service.get_users_with_emails(body.ids)
 
     if not users:
         raise HTTPException(status_code=404, detail="Users not found")
@@ -42,7 +44,7 @@ async def get_users_emails(users_ids: UserIds, db: AsyncSession = Depends(get_db
 @user_router.post(
     "/create", response_model=UserData, status_code=status.HTTP_201_CREATED
 )
-async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
     service = UserService(db)
     try:
         return await service.register(body)
@@ -55,6 +57,9 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
 ):
+    result = {
+        "token_type": "bearer",
+    }
     service = AuthenticationService(db)
     user = await service.authenticate_user(form_data.username, form_data.password)
 
@@ -65,40 +70,44 @@ async def login(
         )
 
     user_data = {"sub": user.email, "user_pk": user.user_pk}
-    access_token = create_access_token(data=user_data)
+    access_token_data = create_access_token(data=user_data)
+    result.update(access_token_data)
+
     refresh_token = await add_refresh_token_to_db(data=user_data, db=db)
+    result.update({"refresh_token": refresh_token})
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+    return result
 
 
-@login_router.get(
-    "/token/refresh/{user_pk}", response_model=Token, status_code=status.HTTP_200_OK
+@login_router.post(
+    "/token/refresh", response_model=Token, status_code=status.HTTP_200_OK
 )
-async def refresh_access_token(user_pk: int, db: AsyncSession = Depends(get_db)):
+async def refresh_access_token(
+    refresh_token: str = Depends(get_refresh_token_from_headers),
+    db: AsyncSession = Depends(get_db),
+):
     result = {"token_type": "bearer"}
-    user_service = UserService(db)
-    user = await user_service.get_user_by_pk(user_pk)
+
+    token_dal = TokenDAL(db)
+    is_refresh_token_in_db = await token_dal.validate_refresh_token(refresh_token)
+    if not is_refresh_token_in_db:
+        raise HTTPException(status_code=404, detail="Refresh token not found")
+    result.update({"refresh_token": refresh_token})
+
+    auth_service = AuthenticationService(db)
+    user = await auth_service.get_user_from_token(refresh_token)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
     user_data = {"sub": user.email, "user_pk": user.user_pk}
 
-    auth_service = AuthenticationService(db)
-    refresh_token = await auth_service.get_user_refresh_token(user_pk)
-    result.update({"refresh_token": refresh_token.token})
+    db_refresh_token = await token_dal.get_refresh_token(refresh_token)
 
-    if not refresh_token:
-        raise HTTPException(status_code=404, detail="Refresh token not found")
-
-    if refresh_token.expires_at < datetime.now(timezone.utc):
+    if db_refresh_token.expires_at < datetime.now(timezone.utc):
         updated_refresh_token = await update_refresh_token_in_db(data=user_data, db=db)
         result.update({"refresh_token": updated_refresh_token})
 
-    access_token = create_access_token(data=user_data)
-    result.update({"access_token": access_token})
+    access_token_data = create_access_token(data=user_data)
+    result.update(access_token_data)
 
     return result

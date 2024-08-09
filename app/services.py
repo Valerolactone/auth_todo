@@ -67,23 +67,20 @@ class AuthenticationService:
             return
         return user
 
-    async def get_user_email_from_token(
+    async def get_user_from_token(
         self, token: str = Depends(_oauth2_scheme)
-    ) -> str:
+    ) -> User | None:
         try:
             payload = jwt.decode(
                 token,
                 os.getenv("JWT_SECRET_KEY"),
                 algorithms=os.getenv("JWT_ALGORITHM"),
             )
-            email: str = payload.get("sub")
-            if email is None:
+            user_pk: str = payload.get("user_pk")
+            if user_pk is None:
                 raise self._credentials_exception
         except PyJWTError:
             raise self._credentials_exception
-        return email
+        user_dal = UserDAL(self.db_session)
 
-    async def get_user_refresh_token(self, user_pk: int) -> RefreshToken | None:
-        async with self.db_session.begin():
-            token_dal = TokenDAL(self.db_session)
-            return await token_dal.get_user_refresh_token(user_pk=user_pk)
+        return await user_dal.get_user_by_pk(user_pk=user_pk)

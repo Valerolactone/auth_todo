@@ -1,21 +1,18 @@
+import os
 from datetime import datetime, timezone
 from logging import getLogger
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import Token, UserCreate, UserData, UserIds, UsersWithEmails
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import (
-    add_refresh_token_to_db,
-    create_access_token,
-    get_refresh_token_from_headers,
-    update_refresh_token_in_db,
-)
 
-from app.services import AuthenticationService, UserService
+from app.services import AuthenticationService, UserService, TokenService
 from db.dals import TokenDAL
 from db.session import get_db
+from utils import get_refresh_token_from_headers
 
 logger = getLogger(__name__)
 user_router = APIRouter()
@@ -55,7 +52,7 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
+        form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
 ):
     result = {
         "token_type": "bearer",
@@ -70,12 +67,16 @@ async def login(
         )
 
     user_data = {"sub": user.email, "user_pk": user.user_pk}
-    access_token_data = create_access_token(data=user_data)
+    token_service = TokenService(db_session=db, data=user_data)
+    access_token_data = token_service.create_access_token()
     result.update(access_token_data)
 
-    refresh_token = await add_refresh_token_to_db(data=user_data, db=db)
+    refresh_token = await token_service.add_refresh_token_to_db()
     result.update({"refresh_token": refresh_token})
 
+    async with httpx.AsyncClient() as client:
+        await client.post(os.getenv("DRF_URL"),
+                          headers={"Authorization": f"Bearer {access_token_data.get("access_token")}"})
     return result
 
 
@@ -83,8 +84,8 @@ async def login(
     "/token/refresh", response_model=Token, status_code=status.HTTP_200_OK
 )
 async def refresh_access_token(
-    refresh_token: str = Depends(get_refresh_token_from_headers),
-    db: AsyncSession = Depends(get_db),
+        refresh_token: str = Depends(get_refresh_token_from_headers),
+        db: AsyncSession = Depends(get_db),
 ):
     result = {"token_type": "bearer"}
 
@@ -103,11 +104,17 @@ async def refresh_access_token(
 
     db_refresh_token = await token_dal.get_refresh_token(refresh_token)
 
+    token_service = TokenService(db_session=db, data=user_data)
+
     if db_refresh_token.expires_at < datetime.now(timezone.utc):
-        updated_refresh_token = await update_refresh_token_in_db(data=user_data, db=db)
+        updated_refresh_token = await token_service.update_refresh_token_in_db()
         result.update({"refresh_token": updated_refresh_token})
 
-    access_token_data = create_access_token(data=user_data)
+    access_token_data = token_service.create_access_token()
     result.update(access_token_data)
+
+    async with httpx.AsyncClient() as client:
+        await client.post(os.getenv("DRF_URL"),
+                          headers={"Authorization": f"Bearer {access_token_data.get("access_token")}"})
 
     return result

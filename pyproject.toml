@@ -15,9 +15,9 @@ pytest = "^8.2.2"
 asyncpg = "^0.29.0"
 psycopg = {extras = ["binary"], version = "^3.2.1"}
 passlib = "^1.7.4"
-python-jose = "^3.3.0"
 python-multipart = "^0.0.9"
 bcrypt = "^4.2.0"
+pyjwt = "^2.9.0"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -31,6 +31,9 @@ mypy = "^1.10.1"
 pythonpath = [
     '.'
 ]
+
+[tool.isort]
+   profile = "black"
 
 [build-system]
 requires = ["poetry-core"]

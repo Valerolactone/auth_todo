@@ -7,7 +7,7 @@ on:
     branches: [ "develop" ]
 
 jobs:
-  build:
+  tests:
     runs-on: ubuntu-latest
 
     services:
@@ -43,16 +43,14 @@ jobs:
     - name: Install alembic
       run: poetry add alembic
 
-    - name: Run migrations
-      run: alembic upgrade head
-      env:
-        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+    - name: Check Alembic Migration Version
+      uses: DevGlitch/alembic-migration-checker@v1.1
+      with:
+        db_url: postgres+psycopg2://postgres:postgres@localhost:5432/postgres
+        migrations_path: ./migrations/
 
     - name: Test with pytest
       env:
-        DEBUG: ${{ secrets.DEBUG }}
-        DB_HOST: ${{ secrets.POSTGRES_HOST }}
-        DB_NAME: ${{ secrets.POSTGRES_DB }}
-        DB_USER: ${{ secrets.POSTGRES_USER }}
-        DB_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-      run: poetry run pytest tests/
+        DATABASE_URL: postgres+psycopg2://postgres:postgres@localhost:5432/postgres
+      run: |
+        poetry run pytest

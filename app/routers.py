@@ -8,11 +8,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from schemas import Token, UserCreate, UserData, UserIds, UsersWithEmails
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils import get_refresh_token_from_headers
 
-from app.services import AuthenticationService, UserService, TokenService
+from app.services import AuthenticationService, TokenService, UserService
 from db.dals import TokenDAL
 from db.session import get_db
-from utils import get_refresh_token_from_headers
 
 logger = getLogger(__name__)
 user_router = APIRouter()
@@ -52,7 +52,7 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def login(
-        form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
+    form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
 ):
     result = {
         "token_type": "bearer",
@@ -74,9 +74,6 @@ async def login(
     refresh_token = await token_service.add_refresh_token_to_db()
     result.update({"refresh_token": refresh_token})
 
-    async with httpx.AsyncClient() as client:
-        await client.post(os.getenv("DRF_URL"),
-                          headers={"Authorization": f"Bearer {access_token_data.get("access_token")}"})
     return result
 
 
@@ -84,8 +81,8 @@ async def login(
     "/token/refresh", response_model=Token, status_code=status.HTTP_200_OK
 )
 async def refresh_access_token(
-        refresh_token: str = Depends(get_refresh_token_from_headers),
-        db: AsyncSession = Depends(get_db),
+    refresh_token: str = Depends(get_refresh_token_from_headers),
+    db: AsyncSession = Depends(get_db),
 ):
     result = {"token_type": "bearer"}
 
@@ -112,9 +109,5 @@ async def refresh_access_token(
 
     access_token_data = token_service.create_access_token()
     result.update(access_token_data)
-
-    async with httpx.AsyncClient() as client:
-        await client.post(os.getenv("DRF_URL"),
-                          headers={"Authorization": f"Bearer {access_token_data.get("access_token")}"})
 
     return result

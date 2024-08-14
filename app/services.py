@@ -1,9 +1,9 @@
 import os
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 from sqlalchemy.exc import SQLAlchemyError
@@ -71,7 +71,7 @@ class AuthenticationService:
         return user
 
     async def get_user_from_token(
-            self, token: str = Depends(_oauth2_scheme)
+        self, token: str = Depends(_oauth2_scheme)
     ) -> User | None:
         try:
             payload = jwt.decode(
@@ -155,4 +155,3 @@ class TokenService:
             raise HTTPException(status_code=500, detail=str(e))
 
         return refresh_token
-

@@ -1,8 +1,6 @@
-import os
 from datetime import datetime, timezone
 from logging import getLogger
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import Token, UserCreate, UserData, UserIds, UsersWithEmails

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 from sqlalchemy.exc import SQLAlchemyError

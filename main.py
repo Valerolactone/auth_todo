@@ -23,24 +23,25 @@ async def regex_redirect_middleware(request: Request, call_next):
     for pattern, target_url in redirect_map.items():
         match = re.match(pattern, request.url.path)
         if match:
+            auth_header = {}
+            if "Authorization" in request.headers:
+                auth_header["Authorization"] = request.headers["Authorization"]
+
             new_url = f"{target_url}/{match.group(1)}"
-            headers = {**request.headers}
+            request_data = (
+                request.query_params if request.method in ["GET", "DELETE"] else None
+            )
+            json_data = (
+                await request.json() if request.method in ["POST", "PUT"] else None
+            )
 
             async with httpx.AsyncClient() as client:
                 response = await client.request(
                     request.method,
                     new_url,
-                    headers=headers,
-                    json=(
-                        await request.json()
-                        if request.method in ["POST", "PUT"]
-                        else None
-                    ),
-                    params=(
-                        request.query_params
-                        if request.method in ["GET", "DELETE"]
-                        else None
-                    ),
+                    headers=auth_header,
+                    json=json_data,
+                    params=request_data,
                 )
 
             return JSONResponse(

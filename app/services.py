@@ -1,11 +1,10 @@
 import os
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jwt import PyJWTError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,19 +58,19 @@ class AuthenticationService:
             detail="Could not validate credentials",
         )
 
-    async def _get_user_by_email(self, email: str) -> User | None:
+    async def get_user_by_email(self, email: str) -> User | None:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             return await user_dal.get_user_by_email(email=email)
 
     async def authenticate_user(self, email: str, password: str) -> User | None:
-        user = await self._get_user_by_email(email=email)
+        user = await self.get_user_by_email(email=email)
         if user is None or not user.verify_password(password):
-            return
+            return None
         return user
 
     async def get_user_from_token(
-            self, token: str = Depends(_oauth2_scheme)
+        self, token: str = Depends(_oauth2_scheme)
     ) -> User | None:
         try:
             payload = jwt.decode(
@@ -82,7 +81,7 @@ class AuthenticationService:
             user_pk: str = payload.get("user_pk")
             if user_pk is None:
                 raise self._credentials_exception
-        except PyJWTError:
+        except jwt.PyJWTError:
             raise self._credentials_exception
         user_dal = UserDAL(self.db_session)
 
@@ -155,4 +154,3 @@ class TokenService:
             raise HTTPException(status_code=500, detail=str(e))
 
         return refresh_token
-

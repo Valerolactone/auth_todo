@@ -42,3 +42,18 @@ class Token(BaseModel):
     access_token_expires_at: datetime
     refresh_token: str
     token_type: str
+
+
+class ForgetPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetForgetPassword(BaseModel):
+    new_password: str
+    confirm_password: str
+
+
+class SuccessMessage(TunedModel):
+    success: bool
+    status_code: int
+    message: str

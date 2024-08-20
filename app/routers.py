@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 from logging import getLogger
 
@@ -8,7 +7,6 @@ from fastapi.security import OAuth2PasswordRequestForm
 from schemas import (
     ForgetPasswordRequest,
     ResetForgetPassword,
-    SuccessMessage,
     Token,
     UserCreate,
     UserData,
@@ -17,14 +15,14 @@ from schemas import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import (
-    create_reset_password_token,
-    decode_reset_password_token,
-    get_refresh_token_from_headers,
-    send_password_reset_email,
-)
+from utils import get_refresh_token_from_headers
 
-from app.services import AuthenticationService, TokenService, UserService
+from app.services import (
+    AuthenticationService,
+    ResetPasswordService,
+    TokenService,
+    UserService,
+)
 from db.dals import TokenDAL
 from db.session import get_db
 
@@ -133,88 +131,38 @@ async def forget_password(
     forget_password_request: ForgetPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    service = AuthenticationService(db)
-    try:
-        user = await service.get_user_by_email(forget_password_request.email)
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Invalid Email address",
-            )
+    user_service = AuthenticationService(db)
+    reset_password_service = ResetPasswordService()
 
-        secret_token = create_reset_password_token(email=user.email)
-
-        forget_url_link = (
-            f"{os.getenv("APP_HOST")}{os.getenv("FORGET_PASSWORD_URL")}/{secret_token}"
-        )
-
-        email_body = f"""
-        Please reset your password by clicking the link below (valid for {os.getenv("FORGET_PASSWORD_LINK_EXPIRE_MINUTES")} minutes): 
-        {forget_url_link}
-        Thank you,
-        {os.getenv("MAIL_FROM_NAME")}"""
-
-        background_tasks.add_task(
-            send_password_reset_email, forget_password_request.email, email_body
-        )
-
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "message": "Password reset instructions have been sent to your email.",
-                "status_code": status.HTTP_200_OK,
-            },
-        )
-    except Exception as err:
-        logger.error("Unexpected error in reset_password: %s", str(err))
+    user = await user_service.get_user_by_email(forget_password_request.email)
+    if not user:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Something Unexpected, Server Error",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No user with this email was found.",
         )
 
+    background_tasks.add_task(
+        reset_password_service.send_password_reset_email, user.email
+    )
 
-@login_router.post("/reset-password/{secret_token}", response_model=SuccessMessage)
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "message": "Password reset instructions have been sent to your email."
+        },
+    )
+
+
+@login_router.post("/reset-password/{secret_token}")
 async def reset_password(
     reset_forget_password: ResetForgetPassword,
     db: AsyncSession = Depends(get_db),
     secret_token: str = Path(...),
 ):
-    service = AuthenticationService(db)
-    try:
-        email = decode_reset_password_token(token=secret_token)
-        if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid password reset token or the reset link has expired.",
-            )
-        if reset_forget_password.new_password != reset_forget_password.confirm_password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password and password confirmation do not match.",
-            )
+    reset_password_service = ResetPasswordService()
+    await reset_password_service.reset_password(db, secret_token, reset_forget_password)
 
-        user = await service.get_user_by_email(email)
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
-            )
-
-        user.password = reset_forget_password.new_password
-        db.add(user)
-        await db.commit()
-        return SuccessMessage(
-            success=True,
-            status_code=status.HTTP_200_OK,
-            message="Password has been successfully reset!",
-        )
-    except IntegrityError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="There was an issue with the request. Please try again.",
-        )
-    except Exception as e:
-        logger.error(str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred. Please try again later.",
-        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"message": "Password has been successfully reset!"},
+    )

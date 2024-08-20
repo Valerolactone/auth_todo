@@ -51,9 +51,3 @@ class ForgetPasswordRequest(BaseModel):
 class ResetForgetPassword(BaseModel):
     new_password: str
     confirm_password: str
-
-
-class SuccessMessage(TunedModel):
-    success: bool
-    status_code: int
-    message: str

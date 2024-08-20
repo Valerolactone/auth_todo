@@ -16,7 +16,6 @@ from schemas import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
-
 from app.services import (
     AuthenticationService,
     ResetPasswordService,

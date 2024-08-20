@@ -1,15 +1,28 @@
 from datetime import datetime, timezone
 from logging import getLogger
 
-import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from schemas import Token, UserCreate, UserData, UserIds, UsersWithEmails
+from schemas import (
+    ForgetPasswordRequest,
+    ResetForgetPassword,
+    Token,
+    UserCreate,
+    UserData,
+    UserIds,
+    UsersWithEmails,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
 
-from app.services import AuthenticationService, TokenService, UserService
+from app.services import (
+    AuthenticationService,
+    ResetPasswordService,
+    TokenService,
+    UserService,
+)
 from db.dals import TokenDAL
 from db.session import get_db
 
@@ -110,3 +123,44 @@ async def refresh_access_token(
     result.update(access_token_data)
 
     return result
+
+
+@login_router.post("/forget-password")
+async def forget_password(
+    background_tasks: BackgroundTasks,
+    forget_password_request: ForgetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = AuthenticationService(db)
+
+    user = await user_service.get_user_by_email(forget_password_request.email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No user with this email was found.",
+        )
+    reset_password_service = ResetPasswordService(user.email)
+
+    background_tasks.add_task(reset_password_service.send_password_reset_email)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "message": "Password reset instructions have been sent to your email."
+        },
+    )
+
+
+@login_router.post("/reset-password/{secret_token}")
+async def reset_password(
+    reset_forget_password: ResetForgetPassword,
+    db: AsyncSession = Depends(get_db),
+    secret_token: str = Path(...),
+):
+    reset_password_service = ResetPasswordService()
+    await reset_password_service.reset_password(db, secret_token, reset_forget_password)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"message": "Password has been successfully reset!"},
+    )

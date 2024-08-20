@@ -172,10 +172,22 @@ class EmailService:
 
 
 class ResetPasswordService(EmailService):
+    def __init__(self, email: str = None):
+        super().__init__()
+        self.email = email
+        if self.email is not None:
+            self._secret_token = self._create_reset_password_token()
+            self._forget_url_link = f"{os.getenv("APP_HOST")}{os.getenv("FORGET_PASSWORD_URL")}/{self._secret_token}"
 
-    def _create_reset_password_token(self, email: str) -> str:
+            self.email_body = f"""
+                            Please reset your password by clicking the link below (valid for {int(os.getenv("FORGET_PASSWORD_LINK_EXPIRE_MINUTES"))} minutes): 
+                            {self._forget_url_link}
+                            Thank you,
+                            {os.getenv("MAIL_FROM_NAME")}"""
+
+    def _create_reset_password_token(self) -> str:
         data = {
-            "sub": email,
+            "sub": self.email,
             "exp": datetime.utcnow()
             + timedelta(minutes=int(os.getenv("FORGET_PASSWORD_LINK_EXPIRE_MINUTES"))),
         }
@@ -198,22 +210,11 @@ class ResetPasswordService(EmailService):
         except jwt.PyJWTError:
             return
 
-    async def send_password_reset_email(self, email: str):
-        secret_token = self._create_reset_password_token(email=email)
-        forget_url_link = (
-            f"{os.getenv("APP_HOST")}{os.getenv("FORGET_PASSWORD_URL")}/{secret_token}"
-        )
-
-        email_body = f"""
-                Please reset your password by clicking the link below (valid for {os.getenv("FORGET_PASSWORD_LINK_EXPIRE_MINUTES")} minutes): 
-                {forget_url_link}
-                Thank you,
-                {os.getenv("MAIL_FROM_NAME")}"""
-
+    async def send_password_reset_email(self):
         message = MessageSchema(
             subject="Password Reset Instructions",
-            recipients=[email],
-            template_body=email_body,
+            recipients=[self.email],
+            template_body=self.email_body,
             subtype=MessageType.plain,
         )
 

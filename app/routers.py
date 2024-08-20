@@ -16,6 +16,7 @@ from schemas import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
+
 from app.services import (
     AuthenticationService,
     ResetPasswordService,
@@ -131,7 +132,6 @@ async def forget_password(
     db: AsyncSession = Depends(get_db),
 ):
     user_service = AuthenticationService(db)
-    reset_password_service = ResetPasswordService()
 
     user = await user_service.get_user_by_email(forget_password_request.email)
     if not user:
@@ -139,10 +139,9 @@ async def forget_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No user with this email was found.",
         )
+    reset_password_service = ResetPasswordService(user.email)
 
-    background_tasks.add_task(
-        reset_password_service.send_password_reset_email, user.email
-    )
+    background_tasks.add_task(reset_password_service.send_password_reset_email)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,

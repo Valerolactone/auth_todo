@@ -12,7 +12,6 @@ from utils import get_refresh_token_from_headers
 from app.services import AuthenticationService, TokenService, UserService
 from db.dals import TokenDAL
 from db.session import get_db
-from utils import get_refresh_token_from_headers
 
 logger = getLogger(__name__)
 user_router = APIRouter()

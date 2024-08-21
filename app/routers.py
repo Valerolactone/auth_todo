@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from logging import getLogger
 
@@ -5,11 +6,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, st
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import (
-    ForgetPasswordRequest,
     ResetForgetPassword,
     Token,
     UserCreate,
     UserData,
+    UserEmail,
     UserIds,
     UsersWithEmails,
 )
@@ -19,6 +20,7 @@ from utils import get_refresh_token_from_headers
 
 from app.services import (
     AuthenticationService,
+    ConfirmRegistrationService,
     ResetPasswordService,
     TokenService,
     UserService,
@@ -50,16 +52,64 @@ async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
     return {"users": users_with_emails}
 
 
-@user_router.post(
-    "/create", response_model=UserData, status_code=status.HTTP_201_CREATED
-)
-async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
-    service = UserService(db)
-    try:
-        return await service.register(body)
-    except IntegrityError as err:
-        logger.error(err)
-        raise HTTPException(status_code=503, detail=f"Database error: {err}")
+@user_router.post("/create", response_model=UserData)
+async def register(
+    background_tasks: BackgroundTasks,
+    body: UserCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    await user_service.register(body)
+    confirm_registration_service = ConfirmRegistrationService(
+        subject="Confirm Registration Instructions",
+        action="confirm your email",
+        endpoint=os.getenv("CONFIRM_REGISTRATION_URL"),
+        email=body.email,
+    )
+
+    background_tasks.add_task(confirm_registration_service.send_email_with_link)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "message": "Registration confirmation instructions have been sent to your email."
+        },
+    )
+
+
+@user_router.post("/resend-confirmation-link")
+async def send_new_confirmation_link(
+    background_tasks: BackgroundTasks, confirm_registration_request: UserEmail
+):
+    confirm_registration_service = ConfirmRegistrationService(
+        subject="Confirm Registration Instructions",
+        action="confirm your email",
+        endpoint=os.getenv("CONFIRM_REGISTRATION_URL"),
+        email=confirm_registration_request.email,
+    )
+
+    background_tasks.add_task(confirm_registration_service.send_email_with_link)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "message": "Registration confirmation instructions have been sent to your email."
+        },
+    )
+
+
+@user_router.get("/confirm-registration/{secret_token}")
+async def confirm_registration(
+    db: AsyncSession = Depends(get_db),
+    secret_token: str = Path(...),
+):
+    confirm_registration_service = ConfirmRegistrationService()
+    await confirm_registration_service.confirm_registration(db, secret_token)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"message": "Registration has been successfully confirmed!"},
+    )
 
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
@@ -128,7 +178,7 @@ async def refresh_access_token(
 @login_router.post("/forget-password")
 async def forget_password(
     background_tasks: BackgroundTasks,
-    forget_password_request: ForgetPasswordRequest,
+    forget_password_request: UserEmail,
     db: AsyncSession = Depends(get_db),
 ):
     user_service = AuthenticationService(db)
@@ -139,9 +189,14 @@ async def forget_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No user with this email was found.",
         )
-    reset_password_service = ResetPasswordService(user.email)
+    reset_password_service = ResetPasswordService(
+        subject="Password Reset Instructions",
+        action="reset your password",
+        endpoint=os.getenv("RESET_PASSWORD_URL"),
+        email=user.email,
+    )
 
-    background_tasks.add_task(reset_password_service.send_password_reset_email)
+    background_tasks.add_task(reset_password_service.send_email_with_link)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,

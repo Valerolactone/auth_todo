@@ -87,6 +87,6 @@ class RoleOut(TunedModel):
     description: str
 
 
-class RolePermissionCreate(BaseModel):
+class RolePermission(TunedModel):
     role_pk: int
     permission_pk: int

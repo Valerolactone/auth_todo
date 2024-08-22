@@ -13,11 +13,12 @@ from app.schemas import (
     PermissionUpdate,
     ResetForgetPassword,
     RoleCreate,
+    RolePermission,
     RoleUpdate,
     UserCreate,
     UserOut,
 )
-from db.dals import PermissionDAL, RoleDAL, TokenDAL, UserDAL
+from db.dals import PermissionDAL, RoleDAL, RolePermissionDAL, TokenDAL, UserDAL
 from db.models import Permission, RefreshToken, Role, User
 
 
@@ -269,14 +270,14 @@ class ResetPasswordService(EmailTokenService):
             )
 
         user.password = reset_forget_password.new_password
-        
+
         try:
             db.add(user)
             await db.flush()
         except SQLAlchemyError as err:
             await db.rollback()
             raise HTTPException(status_code=500, detail=str(err))
-            
+
 
 class ConfirmRegistrationService(EmailTokenService):
     @classmethod
@@ -435,3 +436,68 @@ class RoleService:
             )
 
         return db_role
+
+
+class RolePermissionService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_role_permission(self, data: RolePermission):
+        role_dal = RoleDAL(self.db)
+        role = role_dal.get_role_by_pk(data.role_pk)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Role with id {data.role_pk} not found",
+            )
+        permission_dal = PermissionDAL(self.db)
+        permission = permission_dal.get_permission_by_pk(data.permission_pk)
+        if not permission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Permission with id {data.permission_pk} not found",
+            )
+        db_role_permission = RolePermission(**data.dict())
+        try:
+            self.db.add(db_role_permission)
+            await self.db.flush()
+            await self.db.refresh(db_role_permission)
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+        return db_role_permission
+
+    async def get_permissions_for_role(self, role_pk: int):
+        role_dal = RoleDAL(self.db)
+        role = role_dal.get_role_by_pk(role_pk)
+
+        return role.permissions
+
+    async def get_roles_for_permission(self, permission_pk: int):
+        permission_dal = PermissionDAL(self.db)
+        permission = permission_dal.get_permission_by_pk(permission_pk)
+
+        return permission.roles
+
+    async def delete_role_permission(self, data: RolePermission):
+        role_permission_dal = RolePermissionDAL(self.db)
+        db_role_permission = await role_permission_dal.get_role_permission(
+            role_pk=data.role_pk, permission_pk=data.permission_pk
+        )
+        if not db_role_permission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No relationship found between Role {data.role_pk} and Permission {data.permission_pk}",
+            )
+        try:
+            await self.db.delete(db_role_permission)
+            await self.db.flush()
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_role_permission

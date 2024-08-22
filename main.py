@@ -70,6 +70,10 @@ main_api_router.include_router(
     permission_router, prefix="/permissions", tags=["permissions"]
 )
 main_api_router.include_router(role_router, prefix="/roles", tags=["roles"])
+main_api_router.include_router(
+    role_permissions_router, prefix="/rp", tags=["role_permissions"]
+)
+
 
 app.include_router(main_api_router)
 

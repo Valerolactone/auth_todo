@@ -8,13 +8,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, st
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import (
-    ForgetPasswordRequest,
     PermissionCreate,
     PermissionOut,
     PermissionUpdate,
     ResetForgetPassword,
     RoleCreate,
     RoleOut,
+    RolePermission,
     RoleUpdate,
     Token,
     UserCreate,
@@ -23,16 +23,16 @@ from schemas import (
     UserOut,
     UsersWithEmails,
 )
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
 
 from app.services import (
     AuthenticationService,
-    PermissionService,
     ConfirmRegistrationService,
     EmailTokenService,
+    PermissionService,
     ResetPasswordService,
+    RolePermissionService,
     RoleService,
     TokenService,
     UserService,
@@ -69,7 +69,7 @@ async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
     return {"users": users_with_emails}
 
 
-@user_router.post("/create", response_model=UserData)
+@user_router.post("/create", response_model=UserOut)
 async def register(
     background_tasks: BackgroundTasks,
     body: UserCreate,
@@ -333,3 +333,43 @@ async def delete_role(
 ):
     role_service = RoleService(db)
     return await role_service.delete_role(int(role_pk))
+
+
+@role_permissions_router.post("/")
+async def assign_permission_to_role(
+    role_and_permission: RolePermission,
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    role_permission_service = RolePermissionService(db)
+    return await role_permission_service.create_role_permission(role_and_permission)
+
+
+@role_permissions_router.get("/role/{role_pk}/permissions/")
+async def read_permissions_for_role(
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    role_pk: str = Path(...),
+):
+    role_permission_service = RolePermissionService(db)
+    return await role_permission_service.get_permissions_for_role(int(role_pk))
+
+
+@role_permissions_router.get("/permission/{permission_pk}/roles/")
+async def read_roles_for_permission(
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    permission_pk: str = Path(...),
+):
+    role_permission_service = RolePermissionService(db)
+    return await role_permission_service.get_permissions_for_role(int(permission_pk))
+
+
+@role_permissions_router.delete("/")
+async def remove_permission_from_role(
+    role_and_permission: RolePermission,
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    role_permission_service = RolePermissionService(db)
+    return await role_permission_service.delete_role_permission(role_and_permission)

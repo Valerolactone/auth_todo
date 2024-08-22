@@ -3,7 +3,7 @@ from typing import Sequence
 from sqlalchemy import Row, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Permission, RefreshToken, Role, User
+from db.models import Permission, RefreshToken, Role, RolePermission, User
 
 
 class UserDAL:
@@ -118,3 +118,25 @@ class RoleDAL:
         if role_row is None:
             return
         return role_row
+
+
+class RolePermissionDAL:
+    """Data Access Layer for operating role_permission info"""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
+
+    async def get_role_permission(
+        self, role_pk: int, permission_pk: int
+    ) -> RolePermission | None:
+        query = select(RolePermission).where(
+            and_(
+                RolePermission.role_pk == role_pk,
+                RolePermission.permission_pk == permission_pk,
+            )
+        )
+        result = await self.db_session.execute(query)
+        role_permission_row = result.scalar_one_or_none()
+        if role_permission_row is None:
+            return
+        return role_permission_row

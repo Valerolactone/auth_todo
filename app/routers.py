@@ -21,6 +21,7 @@ from utils import get_refresh_token_from_headers
 from app.services import (
     AuthenticationService,
     ConfirmRegistrationService,
+    EmailTokenService,
     ResetPasswordService,
     TokenService,
     UserService,
@@ -60,14 +61,16 @@ async def register(
 ):
     user_service = UserService(db)
     await user_service.register(body)
-    confirm_registration_service = ConfirmRegistrationService(
+    email_registration_confirmation_service = EmailTokenService(
         subject="Confirm Registration Instructions",
         action="confirm your email",
         endpoint=os.getenv("CONFIRM_REGISTRATION_URL"),
         email=body.email,
     )
 
-    background_tasks.add_task(confirm_registration_service.send_email_with_link)
+    background_tasks.add_task(
+        email_registration_confirmation_service.send_email_with_link
+    )
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
@@ -81,14 +84,16 @@ async def register(
 async def send_new_confirmation_link(
     background_tasks: BackgroundTasks, confirm_registration_request: UserEmail
 ):
-    confirm_registration_service = ConfirmRegistrationService(
+    email_registration_confirmation_service = EmailTokenService(
         subject="Confirm Registration Instructions",
         action="confirm your email",
         endpoint=os.getenv("CONFIRM_REGISTRATION_URL"),
         email=confirm_registration_request.email,
     )
 
-    background_tasks.add_task(confirm_registration_service.send_email_with_link)
+    background_tasks.add_task(
+        email_registration_confirmation_service.send_email_with_link
+    )
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
@@ -99,12 +104,11 @@ async def send_new_confirmation_link(
 
 
 @user_router.get("/confirm-registration/{secret_token}")
-async def confirm_registration(
+async def confirm_email(
     db: AsyncSession = Depends(get_db),
     secret_token: str = Path(...),
 ):
-    confirm_registration_service = ConfirmRegistrationService()
-    await confirm_registration_service.confirm_registration(db, secret_token)
+    await ConfirmRegistrationService.confirm_registration(db, secret_token)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
@@ -189,14 +193,15 @@ async def forget_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No user with this email was found.",
         )
-    reset_password_service = ResetPasswordService(
+
+    email_password_reset_service = EmailTokenService(
         subject="Password Reset Instructions",
         action="reset your password",
         endpoint=os.getenv("RESET_PASSWORD_URL"),
         email=user.email,
     )
 
-    background_tasks.add_task(reset_password_service.send_email_with_link)
+    background_tasks.add_task(email_password_reset_service.send_email_with_link)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
@@ -212,8 +217,7 @@ async def reset_password(
     db: AsyncSession = Depends(get_db),
     secret_token: str = Path(...),
 ):
-    reset_password_service = ResetPasswordService()
-    await reset_password_service.reset_password(db, secret_token, reset_forget_password)
+    await ResetPasswordService.reset_password(db, secret_token, reset_forget_password)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,

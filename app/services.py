@@ -31,7 +31,7 @@ class UserService:
             if email_check is not None:
                 raise HTTPException(
                     detail='Email is already registered',
-                    status_code=status.HTTP_409_CONFLICT,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
             user = await user_dal.create_user(
@@ -167,10 +167,10 @@ class TokenService:
 class EmailTokenService:
     def __init__(
         self,
-        subject: str = None,
-        action: str = None,
-        endpoint: str = None,
-        email: str = None,
+        subject: str,
+        action: str,
+        endpoint: str,
+        email: str,
     ):
         self.subject = subject
         self.action = action
@@ -186,14 +186,13 @@ class EmailTokenService:
             MAIL_SSL_TLS=False,
         )
         self.email_agent = FastMail(self.mail_conf)
-        if self.email is not None:
-            self._secret_token = self._create_token_for_link()
-            self._link = f"{os.getenv("APP_HOST")}{self.endpoint}/{self._secret_token}"
-            self.email_body = f"""
-                            Please {self.action} by clicking the link below (valid for {int(os.getenv("LINK_EXPIRE_MINUTES"))} minutes): 
-                            {self._link}
-                            Thank you,
-                            {os.getenv("MAIL_FROM_NAME")}"""
+        self._secret_token = self._create_token_for_link()
+        self._link = f"{os.getenv("APP_HOST")}{self.endpoint}/{self._secret_token}"
+        self.email_body = f"""
+                        Please {self.action} by clicking the link below (valid for {int(os.getenv("LINK_EXPIRE_MINUTES"))} minutes): 
+                        {self._link}
+                        Thank you,
+                        {os.getenv("MAIL_FROM_NAME")}"""
 
     def _create_token_for_link(self) -> str:
         data = {
@@ -208,7 +207,8 @@ class EmailTokenService:
         )
         return token
 
-    def _decode_token_from_link(self, token: str) -> str | None:
+    @classmethod
+    def _decode_token_from_link(cls, token: str) -> str | None:
         try:
             payload = jwt.decode(
                 token,
@@ -232,14 +232,14 @@ class EmailTokenService:
 
 
 class ResetPasswordService(EmailTokenService):
-
+    @classmethod
     async def reset_password(
-        self,
+        cls,
         db: AsyncSession,
         secret_token: str,
         reset_forget_password: ResetForgetPassword,
     ):
-        email = self._decode_token_from_link(token=secret_token)
+        email = cls._decode_token_from_link(token=secret_token)
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -259,19 +259,30 @@ class ResetPasswordService(EmailTokenService):
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
             )
 
-        user.password = reset_forget_password.new_password
-        db.add(user)
+        if user.verify_password(reset_forget_password.new_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have entered an old password.",
+            )
 
-        await db.commit()
+        user.password = reset_forget_password.new_password
+
+        try:
+            db.add(user)
+            await db.flush()
+        except SQLAlchemyError as err:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=str(err))
 
 
 class ConfirmRegistrationService(EmailTokenService):
+    @classmethod
     async def confirm_registration(
-        self,
+        cls,
         db: AsyncSession,
         secret_token: str,
     ):
-        email = self._decode_token_from_link(token=secret_token)
+        email = cls._decode_token_from_link(token=secret_token)
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -286,6 +297,10 @@ class ConfirmRegistrationService(EmailTokenService):
             )
 
         user.is_verified = True
-        db.add(user)
 
-        await db.commit()
+        try:
+            db.add(user)
+            await db.flush()
+        except SQLAlchemyError as err:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=str(err))

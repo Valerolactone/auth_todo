@@ -34,6 +34,13 @@ class UserService:
     async def register(self, body: UserCreate) -> UserOut:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
+            email_check = await user_dal.get_user_by_email(body.email)
+            if email_check is not None:
+                raise HTTPException(
+                    detail='Email is already registered',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
             user = await user_dal.create_user(
                 first_name=body.first_name,
                 last_name=body.last_name,
@@ -160,8 +167,18 @@ class TokenService:
         return refresh_token
 
 
-class EmailService:
-    def __init__(self):
+class EmailTokenService:
+    def __init__(
+        self,
+        subject: str,
+        action: str,
+        endpoint: str,
+        email: str,
+    ):
+        self.subject = subject
+        self.action = action
+        self.endpoint = endpoint
+        self.email = email
         self.mail_conf = ConnectionConfig(
             MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
             MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
@@ -172,40 +189,33 @@ class EmailService:
             MAIL_SSL_TLS=False,
         )
         self.email_agent = FastMail(self.mail_conf)
+        self._secret_token = self._create_token_for_link()
+        self._link = f"{os.getenv("APP_HOST")}{self.endpoint}/{self._secret_token}"
+        self.email_body = f"""
+                        Please {self.action} by clicking the link below (valid for {int(os.getenv("LINK_EXPIRE_MINUTES"))} minutes): 
+                        {self._link}
+                        Thank you,
+                        {os.getenv("MAIL_FROM_NAME")}"""
 
-
-class ResetPasswordService(EmailService):
-    def __init__(self, email: str = None):
-        super().__init__()
-        self.email = email
-        if self.email is not None:
-            self._secret_token = self._create_reset_password_token()
-            self._forget_url_link = f"{os.getenv("APP_HOST")}{os.getenv("FORGET_PASSWORD_URL")}/{self._secret_token}"
-
-            self.email_body = f"""
-                            Please reset your password by clicking the link below (valid for {int(os.getenv("FORGET_PASSWORD_LINK_EXPIRE_MINUTES"))} minutes): 
-                            {self._forget_url_link}
-                            Thank you,
-                            {os.getenv("MAIL_FROM_NAME")}"""
-
-    def _create_reset_password_token(self) -> str:
+    def _create_token_for_link(self) -> str:
         data = {
             "sub": self.email,
             "exp": datetime.utcnow()
-            + timedelta(minutes=int(os.getenv("FORGET_PASSWORD_LINK_EXPIRE_MINUTES"))),
+            + timedelta(minutes=int(os.getenv("LINK_EXPIRE_MINUTES"))),
         }
         token = jwt.encode(
             data,
-            os.getenv("JWT_FORGET_PWD_SECRET_KEY"),
+            os.getenv("JWT_FOR_LINK_SECRET_KEY"),
             algorithm=os.getenv("JWT_ALGORITHM"),
         )
         return token
 
-    def _decode_reset_password_token(self, token: str) -> str | None:
+    @classmethod
+    def _decode_token_from_link(cls, token: str) -> str | None:
         try:
             payload = jwt.decode(
                 token,
-                os.getenv("JWT_FORGET_PWD_SECRET_KEY"),
+                os.getenv("JWT_FOR_LINK_SECRET_KEY"),
                 algorithms=[os.getenv("JWT_ALGORITHM")],
             )
             email: str = payload.get("sub")
@@ -213,9 +223,9 @@ class ResetPasswordService(EmailService):
         except jwt.PyJWTError:
             return
 
-    async def send_password_reset_email(self):
+    async def send_email_with_link(self):
         message = MessageSchema(
-            subject="Password Reset Instructions",
+            subject=self.subject,
             recipients=[self.email],
             template_body=self.email_body,
             subtype=MessageType.plain,
@@ -223,13 +233,16 @@ class ResetPasswordService(EmailService):
 
         await self.email_agent.send_message(message)
 
+
+class ResetPasswordService(EmailTokenService):
+    @classmethod
     async def reset_password(
-        self,
+        cls,
         db: AsyncSession,
         secret_token: str,
         reset_forget_password: ResetForgetPassword,
     ):
-        email = self._decode_reset_password_token(token=secret_token)
+        email = cls._decode_token_from_link(token=secret_token)
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -249,10 +262,51 @@ class ResetPasswordService(EmailService):
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
             )
 
-        user.password = reset_forget_password.new_password
-        db.add(user)
+        if user.verify_password(reset_forget_password.new_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have entered an old password.",
+            )
 
-        await db.commit()
+        user.password = reset_forget_password.new_password
+        
+        try:
+            db.add(user)
+            await db.flush()
+        except SQLAlchemyError as err:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=str(err))
+            
+
+class ConfirmRegistrationService(EmailTokenService):
+    @classmethod
+    async def confirm_registration(
+        cls,
+        db: AsyncSession,
+        secret_token: str,
+    ):
+        email = cls._decode_token_from_link(token=secret_token)
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid password reset token or the reset link has expired.",
+            )
+
+        user_service = AuthenticationService(db)
+        user = await user_service.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
+            )
+
+        user.is_verified = True
+
+        try:
+            db.add(user)
+            await db.flush()
+        except SQLAlchemyError as err:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=str(err))
 
 
 class PermissionService:

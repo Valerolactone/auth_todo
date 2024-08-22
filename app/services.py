@@ -1,17 +1,24 @@
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Sequence
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import HTTPException, status
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas import ResetForgetPassword, UserCreate, UserData
-from db.dals import TokenDAL, UserDAL
-from db.models import RefreshToken, User
+from app.schemas import (
+    PermissionCreate,
+    PermissionUpdate,
+    ResetForgetPassword,
+    RoleCreate,
+    RoleUpdate,
+    UserCreate,
+    UserOut,
+)
+from db.dals import PermissionDAL, RoleDAL, TokenDAL, UserDAL
+from db.models import Permission, RefreshToken, Role, User
 
 
 class UserService:
@@ -24,7 +31,7 @@ class UserService:
             users = await user_dal.get_users_emails_for_notification(users_ids)
             return users
 
-    async def register(self, body: UserCreate) -> UserData:
+    async def register(self, body: UserCreate) -> UserOut:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             user = await user_dal.create_user(
@@ -33,7 +40,7 @@ class UserService:
                 email=body.email,
                 password=body.password,
             )
-            return UserData(
+            return UserOut(
                 user_pk=user.user_pk,
                 first_name=user.first_name,
                 last_name=user.last_name,
@@ -49,8 +56,6 @@ class UserService:
 class AuthenticationService:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
-
-    _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
     @property
     def _credentials_exception(self):
@@ -70,9 +75,7 @@ class AuthenticationService:
             return None
         return user
 
-    async def get_user_from_token(
-        self, token: str = Depends(_oauth2_scheme)
-    ) -> User | None:
+    async def get_user_from_token(self, token: str) -> User | None:
         try:
             payload = jwt.decode(
                 token,
@@ -250,3 +253,131 @@ class ResetPasswordService(EmailService):
         db.add(user)
 
         await db.commit()
+
+
+class PermissionService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def _get_permission_by_pk(self, permission_pk: int) -> Permission:
+        permission_dal = PermissionDAL(self.db)
+        permission = await permission_dal.get_permission_by_pk(permission_pk)
+        if not permission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found."
+            )
+
+        return permission
+
+    async def create_permission(self, permission_data: PermissionCreate) -> Permission:
+        db_permission = Permission(**permission_data.dict())
+        try:
+            self.db.add(db_permission)
+            await self.db.flush()
+            await self.db.refresh(db_permission)
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+        return db_permission
+
+    async def read_permissions(self) -> Sequence[Permission] | None:
+        permission_dal = PermissionDAL(self.db)
+        return await permission_dal.get_permissions()
+
+    async def read_permission(self, permission_pk: int) -> Permission:
+        return await self._get_permission_by_pk(permission_pk)
+
+    async def update_permission(self, permission_pk: int, permission: PermissionUpdate):
+        db_permission = await self._get_permission_by_pk(permission_pk)
+        update_data = permission.dict(exclude_unset=True)
+        try:
+            for key, value in update_data.items():
+                setattr(db_permission, key, value)
+            await self.db.flush()
+            await self.db.refresh(db_permission)
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_permission
+
+    async def delete_permission(self, permission_pk: int):
+        db_permission = await self._get_permission_by_pk(permission_pk)
+        try:
+            await self.db.delete(db_permission)
+            await self.db.flush()
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_permission
+
+
+class RoleService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def _get_role_by_pk(self, role_pk: int) -> Role:
+        role_dal = RoleDAL(self.db)
+        role = await role_dal.get_role_by_pk(role_pk)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found."
+            )
+
+        return role
+
+    async def create_role(self, role_data: RoleCreate) -> Role:
+        db_role = Role(**role_data.dict())
+        try:
+            self.db.add(db_role)
+            await self.db.flush()
+            await self.db.refresh(db_role)
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+        return db_role
+
+    async def read_roles(self) -> Sequence[Role] | None:
+        role_dal = RoleDAL(self.db)
+        return await role_dal.get_roles()
+
+    async def read_role(self, role_pk: int) -> Role:
+        return await self._get_role_by_pk(role_pk)
+
+    async def update_role(self, role_pk: int, role: RoleUpdate):
+        db_role = await self._get_role_by_pk(role_pk)
+        update_data = role.dict(exclude_unset=True)
+        try:
+            for key, value in update_data.items():
+                setattr(db_role, key, value)
+            await self.db.flush()
+            await self.db.refresh(db_role)
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_role
+
+    async def delete_role(self, role_pk: int):
+        db_role = await self._get_role_by_pk(role_pk)
+        try:
+            await self.db.delete(db_role)
+            await self.db.flush()
+        except SQLAlchemyError as err:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_role

@@ -1,16 +1,24 @@
 from datetime import datetime, timezone
 from logging import getLogger
+from typing import List
 
+import utils
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import (
     ForgetPasswordRequest,
+    PermissionCreate,
+    PermissionOut,
+    PermissionUpdate,
     ResetForgetPassword,
+    RoleCreate,
+    RoleOut,
+    RoleUpdate,
     Token,
     UserCreate,
-    UserData,
     UserIds,
+    UserOut,
     UsersWithEmails,
 )
 from sqlalchemy.exc import IntegrityError
@@ -19,16 +27,23 @@ from utils import get_refresh_token_from_headers
 
 from app.services import (
     AuthenticationService,
+    PermissionService,
     ResetPasswordService,
+    RoleService,
     TokenService,
     UserService,
 )
 from db.dals import TokenDAL
+from db.models import User
 from db.session import get_db
 
 logger = getLogger(__name__)
 user_router = APIRouter()
 login_router = APIRouter()
+permission_router = APIRouter()
+role_router = APIRouter()
+
+role_permissions_router = APIRouter()
 
 
 @user_router.post(
@@ -51,7 +66,7 @@ async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
 
 
 @user_router.post(
-    "/create", response_model=UserData, status_code=status.HTTP_201_CREATED
+    "/create", response_model=UserOut, status_code=status.HTTP_201_CREATED
 )
 async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
     service = UserService(db)
@@ -78,7 +93,7 @@ async def login(
             detail="Incorrect username or password",
         )
 
-    user_data = {"sub": user.email, "user_pk": user.user_pk}
+    user_data = {"sub": user.email, "user_pk": user.user_pk, "role_id": user.role_id}
     token_service = TokenService(db_session=db, data=user_data)
     access_token_data = token_service.create_access_token()
     result.update(access_token_data)
@@ -164,3 +179,97 @@ async def reset_password(
         status_code=status.HTTP_200_OK,
         content={"message": "Password has been successfully reset!"},
     )
+
+
+@permission_router.post(
+    "/", response_model=PermissionOut, status_code=status.HTTP_201_CREATED
+)
+async def create_permission(
+    permission: PermissionCreate,
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    permission_service = PermissionService(db)
+    return await permission_service.create_permission(permission)
+
+
+@permission_router.get("/", response_model=List[PermissionOut])
+async def read_permissions(db: AsyncSession = Depends(get_db)):
+    permission_service = PermissionService(db)
+    return await permission_service.read_permissions()
+
+
+@permission_router.get("/{permission_pk}", response_model=PermissionOut)
+async def read_permission(
+    db: AsyncSession = Depends(get_db),
+    permission_pk: str = Path(...),
+):
+    permission_service = PermissionService(db)
+    return await permission_service.read_permission(int(permission_pk))
+
+
+@permission_router.put("/{permission_pk}", response_model=PermissionOut)
+async def update_permission(
+    permission: PermissionUpdate,
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    permission_pk: str = Path(...),
+):
+    permission_service = PermissionService(db)
+    return await permission_service.update_permission(int(permission_pk), permission)
+
+
+@permission_router.delete("/{permission_pk}", response_model=PermissionOut)
+async def delete_permission(
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    permission_pk: str = Path(...),
+):
+    permission_service = PermissionService(db)
+    return await permission_service.delete_permission(int(permission_pk))
+
+
+@role_router.post("/", response_model=RoleOut, status_code=status.HTTP_201_CREATED)
+async def create_role(
+    role: RoleCreate,
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    role_service = RoleService(db)
+    return await role_service.create_role(role)
+
+
+@role_router.get("/", response_model=List[RoleOut])
+async def read_roles(db: AsyncSession = Depends(get_db)):
+    role_service = RoleService(db)
+    return await role_service.read_roles()
+
+
+@role_router.get("/{role_pk}", response_model=RoleOut)
+async def read_role(
+    db: AsyncSession = Depends(get_db),
+    role_pk: str = Path(...),
+):
+    role_service = RoleService(db)
+    return await role_service.read_role(int(role_pk))
+
+
+@role_router.put("/{role_pk}", response_model=RoleOut)
+async def update_role(
+    role: RoleUpdate,
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    role_pk: str = Path(...),
+):
+    role_service = RoleService(db)
+    return await role_service.update_role(int(role_pk), role)
+
+
+@role_router.delete("/{role_pk}", response_model=RoleOut)
+async def delete_role(
+    admin_user: User = Depends(utils.get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    role_pk: str = Path(...),
+):
+    role_service = RoleService(db)
+    return await role_service.delete_role(int(role_pk))

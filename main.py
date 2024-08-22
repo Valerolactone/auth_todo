@@ -7,7 +7,13 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.routers import login_router, user_router
+from app.routers import (
+    login_router,
+    permission_router,
+    role_permissions_router,
+    role_router,
+    user_router,
+)
 
 load_dotenv()
 
@@ -60,6 +66,10 @@ def health_check():
 main_api_router = APIRouter()
 main_api_router.include_router(user_router, prefix="/users", tags=["users"])
 main_api_router.include_router(login_router, prefix="/login", tags=["login"])
+main_api_router.include_router(
+    permission_router, prefix="/permissions", tags=["permissions"]
+)
+main_api_router.include_router(role_router, prefix="/roles", tags=["roles"])
 
 app.include_router(main_api_router)
 

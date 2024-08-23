@@ -9,6 +9,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas import (
+    AdminUserUpdate,
+    ExpandUserData,
+    PaginatedResponse,
     PermissionCreate,
     PermissionUpdate,
     ResetForgetPassword,
@@ -17,6 +20,7 @@ from app.schemas import (
     RoleUpdate,
     UserCreate,
     UserOut,
+    UserUpdate,
 )
 from db.dals import PermissionDAL, RoleDAL, RolePermissionDAL, TokenDAL, UserDAL
 from db.models import Permission, RefreshToken, Role, User
@@ -30,35 +34,215 @@ class UserService:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             users = await user_dal.get_users_emails_for_notification(users_ids)
-            return users
+        return users
 
-    async def register(self, body: UserCreate) -> UserOut:
+    async def create_user(self, user_data: UserCreate) -> UserOut:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
-            email_check = await user_dal.get_user_by_email(body.email)
+            email_check = await user_dal.get_user_by_email(user_data.email)
             if email_check is not None:
                 raise HTTPException(
                     detail='Email is already registered',
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            user = await user_dal.create_user(
-                first_name=body.first_name,
-                last_name=body.last_name,
-                email=body.email,
-                password=body.password,
+            user = await user_dal.create_user(user_data)
+        return UserOut(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+        )
+
+    async def get_paginated_users(
+        self,
+        page: int,
+        limit: int,
+        sort_by: str = 'user_pk',
+        sort_order: str = 'asc',
+        filter_by: Optional[str] = None,
+    ) -> PaginatedResponse | None:
+        try:
+            user_dal = UserDAL(self.db_session)
+            total_users = await user_dal.count_users(filter_by=filter_by)
+            skip = (page - 1) * limit
+            users = await user_dal.fetch_users(
+                skip, limit, sort_by, sort_order, filter_by
             )
-            return UserOut(
-                user_pk=user.user_pk,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                email=user.email,
+            mapped_users = [
+                UserOut(
+                    user_pk=user.user_pk,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    email=user.email,
+                    role=user.role.name,
+                )
+                for user in users
+            ]
+
+            total_pages = (total_users + limit - 1) // limit
+            has_next = page < total_pages
+            has_prev = page > 1
+            return PaginatedResponse(
+                users=mapped_users,
+                total=total_users,
+                page=page,
+                limit=limit,
+                total_pages=total_pages,
+                has_next=has_next,
+                has_prev=has_prev,
+            )
+        except ValueError as err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
             )
 
-    async def get_user_by_pk(self, user_pk: int) -> User | None:
-        async with self.db_session.begin():
+    async def read_user(self, user_pk: int) -> UserOut:
+        try:
             user_dal = UserDAL(self.db_session)
-            return await user_dal.get_user_by_pk(user_pk=user_pk)
+            user = await user_dal.get_user_by_pk(user_pk)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
+            )
+        return UserOut(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+        )
+
+    async def update_user(self, user_pk: int, user_data: UserUpdate) -> UserOut:
+        user_dal = UserDAL(self.db_session)
+        user = await user_dal.update_user(user_pk, user_data)
+        return UserOut(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+        )
+
+    async def delete_user(self, user_pk: int) -> UserOut:
+        user_dal = UserDAL(self.db_session)
+        user = await user_dal.delete_user(user_pk)
+        return UserOut(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+        )
+
+
+class AdminUserService:
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
+
+    async def admin_get_paginated_users(
+        self,
+        page: int,
+        limit: int,
+        sort_by: str = 'user_pk',
+        sort_order: str = 'asc',
+        filter_by: Optional[str] = None,
+    ) -> PaginatedResponse:
+        try:
+            user_dal = UserDAL(self.db_session)
+            total_users = await user_dal.count_users(filter_by=filter_by)
+            skip = (page - 1) * limit
+            users = await user_dal.fetch_users(
+                skip, limit, sort_by, sort_order, filter_by
+            )
+            total_pages = (total_users + limit - 1) // limit
+            mapped_users = [
+                ExpandUserData(
+                    user_pk=user.user_pk,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    email=user.email,
+                    role=user.role.name,
+                    role_id=user.role_id,
+                    created_at=user.created_at,
+                    deleted_at=user.deleted_at,
+                    is_active=user.is_active,
+                    is_verified=user.is_verified,
+                )
+                for user in users
+            ]
+            has_next = page < total_pages
+            has_prev = page > 1
+
+            return PaginatedResponse(
+                users=mapped_users,
+                total=total_users,
+                page=page,
+                limit=limit,
+                total_pages=total_pages,
+                has_next=has_next,
+                has_prev=has_prev,
+            )
+        except ValueError as err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
+            )
+
+    async def admin_read_user(self, user_pk: int) -> ExpandUserData:
+        try:
+            user_dal = UserDAL(self.db_session)
+            user = await user_dal.get_user_by_pk(user_pk)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
+            )
+        return ExpandUserData(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+            role_id=user.role_id,
+            created_at=user.created_at,
+            deleted_at=user.deleted_at,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+        )
+
+    async def admin_update_user(
+        self, user_pk: int, user_data: AdminUserUpdate
+    ) -> ExpandUserData:
+        user_dal = UserDAL(self.db_session)
+        user = await user_dal.update_user(user_pk, user_data)
+        return ExpandUserData(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+            role_id=user.role_id,
+            created_at=user.created_at,
+            deleted_at=user.deleted_at,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+        )
+
+    async def admin_delete_user(self, user_pk: int) -> ExpandUserData:
+        user_dal = UserDAL(self.db_session)
+        user = await user_dal.delete_user(user_pk)
+        return ExpandUserData(
+            user_pk=user.user_pk,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=user.role.name,
+            role_id=user.role_id,
+            created_at=user.created_at,
+            deleted_at=user.deleted_at,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+        )
 
 
 class AuthenticationService:

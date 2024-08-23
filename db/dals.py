@@ -1,9 +1,24 @@
-from typing import Sequence
+from datetime import datetime
+from typing import Optional, Sequence
 
-from sqlalchemy import Row, and_, select
+from fastapi import HTTPException, status
+from schemas import AdminUserUpdate, UserCreate, UserUpdate
+from sqlalchemy import and_, asc, desc, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from db.models import Permission, RefreshToken, Role, RolePermission, User
+
+ALLOWED_SORT_FIELDS = [
+    'user_pk',
+    'created_at',
+    'role_id',
+    'first_name',
+]
+ALLOWED_FILTER_FIELDS = [
+    'role_id',
+]
 
 
 class UserDAL:
@@ -12,45 +27,126 @@ class UserDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def create_user(
-        self,
-        first_name: str,
-        last_name: str,
-        email: str,
-        password: str,
-    ) -> User:
-        new_user = User(
-            first_name=first_name, last_name=last_name, email=email, password=password
-        )
-        self.db_session.add(new_user)
-        await self.db_session.flush()
-        return new_user
+    async def create_user(self, user_data: UserCreate) -> User:
+        db_user = User(**user_data.dict())
+        try:
+            self.db_session.add(db_user)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_user)
+        except SQLAlchemyError as err:
+            await self.db_session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+        return db_user
 
     async def get_user_by_email(self, email: str) -> User | None:
         query = select(User).where(User.email == email)
         result = await self.db_session.execute(query)
-        user_row = result.fetchone()
-        if user_row is None:
-            return
-        return user_row[0]
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise ValueError(f"User with email '{email}' not found")
+        return user
 
     async def get_user_by_pk(self, user_pk: int) -> User | None:
-        query = select(User).where(User.user_pk == user_pk)
+        query = (
+            select(User).where(User.user_pk == user_pk).options(joinedload(User.role))
+        )
         result = await self.db_session.execute(query)
-        user_row = result.fetchone()
-        if user_row is None:
-            return
-        return user_row[0]
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise ValueError(f"User with PK '{user_pk}' not found")
+        return user
 
     async def get_users_emails_for_notification(
         self, users_ids: list[int]
-    ) -> Sequence[Row[tuple[User]]] | None:
+    ) -> Sequence[User]:
         query = select(User).filter(User.user_pk.in_(users_ids))
         result = await self.db_session.execute(query)
-        users = result.fetchall()
-        if users is None:
-            return
-        return users
+        return result.scalars().all()
+
+    async def count_users(self, filter_by: Optional[str] = None) -> int:
+        query = select(func.count()).select_from(User)
+        if filter_by and filter_by in ALLOWED_FILTER_FIELDS:
+            query = query.where(User.name.ilike(f"%{filter_by}%"))
+        result = await self.db_session.execute(query)
+        return result.scalar_one()
+
+    async def fetch_users(
+        self,
+        skip: int,
+        limit: int,
+        sort_by: str,
+        sort_order: str,
+        filter_by: Optional[str] = None,
+    ) -> Sequence[User]:
+        if sort_by not in ALLOWED_SORT_FIELDS:
+            raise ValueError(f"Invalid sort field: {sort_by}")
+
+        if sort_order not in ['asc', 'desc']:
+            raise ValueError(f"Invalid sort order: {sort_order}")
+
+        query = select(User).options(joinedload(User.role))
+        if filter_by:
+            if filter_by not in ALLOWED_FILTER_FIELDS:
+                raise ValueError(f"Invalid filter field: {filter_by}")
+            query = query.where(User.name.ilike(f"%{filter_by}%"))
+
+        if sort_order == 'desc':
+            query = query.order_by(desc(sort_by))
+        else:
+            query = query.order_by(asc(sort_by))
+        query = query.offset(skip).limit(limit)
+        result = await self.db_session.execute(query)
+        return result.scalars().all()
+
+    async def get_role_pk_by_name(self, role_name: str) -> int:
+        query = select(Role.role_pk).where(Role.name == role_name)
+        result = await self.db_session.execute(query)
+        role_pk = result.scalar_one_or_none()
+        if role_pk is None:
+            raise ValueError(f"Role with name '{role_name}' not found")
+        return role_pk
+
+    async def update_user(
+        self, user_pk: int, user_data: UserUpdate | AdminUserUpdate
+    ) -> User:
+        db_user = await self.get_user_by_pk(user_pk)
+        update_data = user_data.dict(exclude_unset=True)
+        try:
+            if isinstance(user_data, UserUpdate):
+                for key, value in update_data.items():
+                    setattr(db_user, key, value)
+            else:
+                role_pk = await self.get_role_pk_by_name(user_data.role_name)
+                db_user.role_id = role_pk
+                db_user.is_active = user_data.is_active
+
+            await self.db_session.flush()
+            await self.db_session.refresh(db_user)
+        except SQLAlchemyError as err:
+            await self.db_session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_user
+
+    async def delete_user(self, user_pk: int) -> User:
+        db_user = await self.get_user_by_pk(user_pk)
+        db_user.is_active = False
+        db_user.deleted_at = datetime.utcnow()
+        try:
+            self.db_session.add(db_user)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_user)
+        except SQLAlchemyError as err:
+            await self.db_session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
+
+        return db_user
 
 
 class TokenDAL:

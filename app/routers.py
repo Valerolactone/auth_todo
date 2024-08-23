@@ -1,13 +1,24 @@
 import os
 from datetime import datetime, timezone
 from logging import getLogger
-from typing import List
+from typing import List, Optional
 
 import utils
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    status,
+)
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import (
+    AdminUserUpdate,
+    ExpandUserData,
+    PaginatedResponse,
     PermissionCreate,
     PermissionOut,
     PermissionUpdate,
@@ -22,11 +33,13 @@ from schemas import (
     UserIds,
     UserOut,
     UsersWithEmails,
+    UserUpdate,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
 
 from app.services import (
+    AdminUserService,
     AuthenticationService,
     ConfirmRegistrationService,
     EmailTokenService,
@@ -42,6 +55,8 @@ from db.models import User
 from db.session import get_db
 
 logger = getLogger(__name__)
+
+admin_router = APIRouter()
 user_router = APIRouter()
 login_router = APIRouter()
 permission_router = APIRouter()
@@ -69,14 +84,14 @@ async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
     return {"users": users_with_emails}
 
 
-@user_router.post("/create", response_model=UserOut)
-async def register(
+@user_router.post("/register", response_model=UserOut)
+async def create_user(
     background_tasks: BackgroundTasks,
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
 ):
     user_service = UserService(db)
-    await user_service.register(body)
+    await user_service.create_user(body)
     email_registration_confirmation_service = EmailTokenService(
         subject="Confirm Registration Instructions",
         action="confirm your email",
@@ -94,6 +109,107 @@ async def register(
             "message": "Registration confirmation instructions have been sent to your email."
         },
     )
+
+
+@user_router.get("/", response_model=PaginatedResponse)
+async def read_users(
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1),
+    sort_by: str = Query('user_pk', alias='sortBy'),
+    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    filter_by: Optional[str] = Query(None, alias='filterBy'),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    return await user_service.get_paginated_users(
+        page, limit, sort_by, sort_order, filter_by
+    )
+
+
+@user_router.get("/{user_pk}", response_model=UserOut)
+async def read_user(
+    db: AsyncSession = Depends(get_db),
+    user_pk: str = Path(...),
+):
+    user_service = UserService(db)
+    return await user_service.read_user(int(user_pk))
+
+
+@user_router.put("/{user_pk}", response_model=UserOut)
+async def update_user(
+    user_data: UserUpdate,
+    current_user: User = Depends(
+        lambda: utils.is_authenticated_user(user_pk=Path(...))
+    ),
+    db: AsyncSession = Depends(get_db),
+    user_pk: str = Path(...),
+):
+    if current_user.user_pk != user_pk:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have the necessary permissions.",
+        )
+    user_service = UserService(db)
+    return await user_service.update_user(int(user_pk), user_data)
+
+
+@user_router.delete("/{user_pk}", response_model=UserOut)
+async def delete_user(
+    current_user: User = Depends(
+        lambda: utils.is_authenticated_user(user_pk=Path(...))
+    ),
+    db: AsyncSession = Depends(get_db),
+    user_pk: str = Path(...),
+):
+    user_service = UserService(db)
+    return await user_service.delete_user(int(user_pk))
+
+
+@admin_router.get("/", response_model=PaginatedResponse)
+async def admin_read_users(
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1),
+    sort_by: str = Query('user_pk', alias='sortBy'),
+    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    filter_by: Optional[str] = Query(None, alias='filterBy'),
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_get_paginated_users(
+        page, limit, sort_by, sort_order, filter_by
+    )
+
+
+@admin_router.get("/{user_pk}", response_model=ExpandUserData)
+async def admin_read_user(
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+    user_pk: str = Path(...),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_read_user(int(user_pk))
+
+
+@admin_router.put("/{user_pk}", response_model=ExpandUserData)
+async def admin_update_user(
+    user_data: AdminUserUpdate,
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+    user_pk: str = Path(...),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_update_user(int(user_pk), user_data)
+
+
+@admin_router.delete("/{user_pk}", response_model=ExpandUserData)
+async def admin_delete_user(
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+    user_pk: str = Path(...),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_delete_user(int(user_pk))
 
 
 @user_router.post("/resend-confirmation-link")
@@ -246,7 +362,7 @@ async def reset_password(
 )
 async def create_permission(
     permission: PermissionCreate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     permission_service = PermissionService(db)
@@ -271,7 +387,7 @@ async def read_permission(
 @permission_router.put("/{permission_pk}", response_model=PermissionOut)
 async def update_permission(
     permission: PermissionUpdate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
@@ -281,7 +397,7 @@ async def update_permission(
 
 @permission_router.delete("/{permission_pk}", response_model=PermissionOut)
 async def delete_permission(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
@@ -292,7 +408,7 @@ async def delete_permission(
 @role_router.post("/", response_model=RoleOut, status_code=status.HTTP_201_CREATED)
 async def create_role(
     role: RoleCreate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     role_service = RoleService(db)
@@ -317,7 +433,7 @@ async def read_role(
 @role_router.put("/{role_pk}", response_model=RoleOut)
 async def update_role(
     role: RoleUpdate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
@@ -327,7 +443,7 @@ async def update_role(
 
 @role_router.delete("/{role_pk}", response_model=RoleOut)
 async def delete_role(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
@@ -338,7 +454,7 @@ async def delete_role(
 @role_permissions_router.post("/")
 async def assign_permission_to_role(
     role_and_permission: RolePermission,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     role_permission_service = RolePermissionService(db)
@@ -347,7 +463,7 @@ async def assign_permission_to_role(
 
 @role_permissions_router.get("/role/{role_pk}/permissions/")
 async def read_permissions_for_role(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
@@ -357,7 +473,7 @@ async def read_permissions_for_role(
 
 @role_permissions_router.get("/permission/{permission_pk}/roles/")
 async def read_roles_for_permission(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
@@ -368,7 +484,7 @@ async def read_roles_for_permission(
 @role_permissions_router.delete("/")
 async def remove_permission_from_role(
     role_and_permission: RolePermission,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     role_permission_service = RolePermissionService(db)

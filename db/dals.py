@@ -3,7 +3,7 @@ from typing import Sequence
 from sqlalchemy import Row, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import RefreshToken, User
+from db.models import Permission, RefreshToken, Role, RolePermission, User
 
 
 class UserDAL:
@@ -72,3 +72,71 @@ class TokenDAL:
     async def validate_refresh_token(self, token: str) -> bool:
         refresh_token = await self.get_refresh_token(token)
         return False if refresh_token is None else True
+
+
+class PermissionDAL:
+    """Data Access Layer for operating permission info"""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
+
+    async def get_permissions(self) -> Sequence[Permission] | None:
+        query = select(Permission)
+        result = await self.db_session.execute(query)
+        permissions = result.scalars().all()
+        if permissions is None:
+            return
+        return permissions
+
+    async def get_permission_by_pk(self, permission_pk: int) -> Permission | None:
+        query = select(Permission).where(Permission.permission_pk == permission_pk)
+        result = await self.db_session.execute(query)
+        permission_row = result.scalar_one_or_none()
+        if permission_row is None:
+            return
+        return permission_row
+
+
+class RoleDAL:
+    """Data Access Layer for operating role info"""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
+
+    async def get_roles(self) -> Sequence[Role] | None:
+        query = select(Role)
+        result = await self.db_session.execute(query)
+        roles = result.scalars().all()
+        if roles is None:
+            return
+        return roles
+
+    async def get_role_by_pk(self, role_pk: int) -> Role | None:
+        query = select(Role).where(Role.role_pk == role_pk)
+        result = await self.db_session.execute(query)
+        role_row = result.scalar_one_or_none()
+        if role_row is None:
+            return
+        return role_row
+
+
+class RolePermissionDAL:
+    """Data Access Layer for operating role_permission info"""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
+
+    async def get_role_permission(
+        self, role_pk: int, permission_pk: int
+    ) -> RolePermission | None:
+        query = select(RolePermission).where(
+            and_(
+                RolePermission.role_pk == role_pk,
+                RolePermission.permission_pk == permission_pk,
+            )
+        )
+        result = await self.db_session.execute(query)
+        role_permission_row = result.scalar_one_or_none()
+        if role_permission_row is None:
+            return
+        return role_permission_row

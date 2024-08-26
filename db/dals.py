@@ -1,4 +1,5 @@
 from datetime import datetime
+from logging import getLogger
 from typing import Optional, Sequence
 
 from fastapi import HTTPException, status
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from db.models import Permission, RefreshToken, Role, RolePermission, User
+
+logger = getLogger(__name__)
 
 ALLOWED_SORT_FIELDS = [
     'user_pk',
@@ -28,38 +31,47 @@ class UserDAL:
         self.db_session = db_session
 
     async def create_user(self, user_data: UserCreate) -> User:
-        db_user = User(**user_data.dict())
+        default_role_name = "user"
+        role_dal = RoleDAL(db_session=self.db_session)
         try:
+            role_pk = role_dal.get_role_pk_by_name(role_name=default_role_name)
+            db_user = User(role_id=role_pk, **user_data.dict())
             self.db_session.add(db_user)
             await self.db_session.flush()
             await self.db_session.refresh(db_user)
         except SQLAlchemyError as err:
             await self.db_session.rollback()
+            logger.error("Error during user creation: %s", str(err))
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create a user.",
             )
         return db_user
 
     async def get_user_by_email(self, email: str) -> User | None:
-        query = select(User).where(User.email == email)
+        query = select(User).where(User.email == email).options(joinedload(User.role))
         result = await self.db_session.execute(query)
         user = result.scalar_one_or_none()
-        if user is None:
-            raise ValueError(f"User with email '{email}' not found")
         return user
 
-    async def get_user_by_pk(self, user_pk: int) -> User | None:
+    async def get_user_by_pk(self, user_pk: int) -> User:
         query = (
             select(User).where(User.user_pk == user_pk).options(joinedload(User.role))
         )
-        result = await self.db_session.execute(query)
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise ValueError(f"User with PK '{user_pk}' not found")
+        try:
+            result = await self.db_session.execute(query)
+            user = result.scalar_one()
+        except SQLAlchemyError as err:
+            await self.db_session.rollback()
+            logger.error("Error during getting user by pk: %s", str(err))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get user by pk",
+            )
         return user
 
     async def get_users_emails_for_notification(
-        self, users_ids: list[int]
+            self, users_ids: list[int]
     ) -> Sequence[User]:
         query = select(User).filter(User.user_pk.in_(users_ids))
         result = await self.db_session.execute(query)
@@ -73,12 +85,12 @@ class UserDAL:
         return result.scalar_one()
 
     async def fetch_users(
-        self,
-        skip: int,
-        limit: int,
-        sort_by: str,
-        sort_order: str,
-        filter_by: Optional[str] = None,
+            self,
+            skip: int,
+            page_size: int,
+            sort_by: str,
+            sort_order: str,
+            filter_by: Optional[str] = None,
     ) -> Sequence[User]:
         if sort_by not in ALLOWED_SORT_FIELDS:
             raise ValueError(f"Invalid sort field: {sort_by}")
@@ -96,29 +108,22 @@ class UserDAL:
             query = query.order_by(desc(sort_by))
         else:
             query = query.order_by(asc(sort_by))
-        query = query.offset(skip).limit(limit)
+        query = query.offset(skip).limit(page_size)
         result = await self.db_session.execute(query)
         return result.scalars().all()
 
-    async def get_role_pk_by_name(self, role_name: str) -> int:
-        query = select(Role.role_pk).where(Role.name == role_name)
-        result = await self.db_session.execute(query)
-        role_pk = result.scalar_one_or_none()
-        if role_pk is None:
-            raise ValueError(f"Role with name '{role_name}' not found")
-        return role_pk
-
     async def update_user(
-        self, user_pk: int, user_data: UserUpdate | AdminUserUpdate
+            self, user_pk: int, user_data: UserUpdate | AdminUserUpdate
     ) -> User:
-        db_user = await self.get_user_by_pk(user_pk)
+        role_dal = RoleDAL(db_session=self.db_session)
         update_data = user_data.dict(exclude_unset=True)
         try:
+            db_user = await self.get_user_by_pk(user_pk)
             if isinstance(user_data, UserUpdate):
                 for key, value in update_data.items():
                     setattr(db_user, key, value)
             else:
-                role_pk = await self.get_role_pk_by_name(user_data.role_name)
+                role_pk = await role_dal.get_role_pk_by_name(role_name=user_data.role_name)
                 db_user.role_id = role_pk
                 db_user.is_active = user_data.is_active
 
@@ -126,8 +131,10 @@ class UserDAL:
             await self.db_session.refresh(db_user)
         except SQLAlchemyError as err:
             await self.db_session.rollback()
+            logger.error("Error during updating user: %s", str(err))
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update user",
             )
 
         return db_user
@@ -142,8 +149,10 @@ class UserDAL:
             await self.db_session.refresh(db_user)
         except SQLAlchemyError as err:
             await self.db_session.rollback()
+            logger.error("Error during deleting user: %s", str(err))
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete user",
             )
 
         return db_user
@@ -215,6 +224,20 @@ class RoleDAL:
             return
         return role_row
 
+    async def get_role_pk_by_name(self, role_name: str) -> int:
+        query = select(Role.role_pk).where(Role.name == role_name)
+        try:
+            result = await self.db_session.execute(query)
+            role_pk = result.scalar_one()
+        except SQLAlchemyError as err:
+            await self.db_session.rollback()
+            logger.error("Error during getting role_pk from name: %s", str(err))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get role_pk from name",
+            )
+        return role_pk
+
 
 class RolePermissionDAL:
     """Data Access Layer for operating role_permission info"""
@@ -223,7 +246,7 @@ class RolePermissionDAL:
         self.db_session = db_session
 
     async def get_role_permission(
-        self, role_pk: int, permission_pk: int
+            self, role_pk: int, permission_pk: int
     ) -> RolePermission | None:
         query = select(RolePermission).where(
             and_(

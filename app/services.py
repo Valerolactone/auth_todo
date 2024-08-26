@@ -40,7 +40,7 @@ class UserService:
         async with self.db_session.begin():
             user_dal = UserDAL(self.db_session)
             email_check = await user_dal.get_user_by_email(user_data.email)
-            if email_check is not None:
+            if email_check:
                 raise HTTPException(
                     detail='Email is already registered',
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -144,7 +144,7 @@ class AdminUserService:
     async def admin_get_paginated_users(
         self,
         page: int,
-        limit: int,
+        page_size: int,
         sort_by: str = 'user_pk',
         sort_order: str = 'asc',
         filter_by: Optional[str] = None,
@@ -152,11 +152,15 @@ class AdminUserService:
         try:
             user_dal = UserDAL(self.db_session)
             total_users = await user_dal.count_users(filter_by=filter_by)
-            skip = (page - 1) * limit
+            skip = (page - 1) * page_size
             users = await user_dal.fetch_users(
-                skip, limit, sort_by, sort_order, filter_by
+                skip, page_size, sort_by, sort_order, filter_by
             )
-            total_pages = (total_users + limit - 1) // limit
+            total_pages = (
+                total_users // page_size
+                if total_users % page_size == 0
+                else total_users // page_size + 1
+            )
             mapped_users = [
                 ExpandUserData(
                     user_pk=user.user_pk,
@@ -179,7 +183,7 @@ class AdminUserService:
                 users=mapped_users,
                 total=total_users,
                 page=page,
-                limit=limit,
+                limit=page_size,
                 total_pages=total_pages,
                 has_next=has_next,
                 has_prev=has_prev,
@@ -326,7 +330,9 @@ class TokenService:
             await self.db_session.flush()
         except SQLAlchemyError as e:
             await self.db_session.rollback()
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            )
 
         return refresh_token
 
@@ -338,7 +344,10 @@ class TokenService:
         try:
             db_refresh_token = await token_dal.get_refresh_token(self.data["user_pk"])
             if not db_refresh_token:
-                raise HTTPException(status_code=404, detail="Refresh token not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Refresh token not found",
+                )
 
             db_refresh_token.token = refresh_token
             db_refresh_token.expires_at = expires_at
@@ -347,7 +356,9 @@ class TokenService:
             await self.db_session.refresh(db_refresh_token)
         except SQLAlchemyError as e:
             await self.db_session.rollback()
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            )
 
         return refresh_token
 
@@ -460,7 +471,9 @@ class ResetPasswordService(EmailTokenService):
             await db.flush()
         except SQLAlchemyError as err:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=str(err))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
+            )
 
 
 class ConfirmRegistrationService(EmailTokenService):

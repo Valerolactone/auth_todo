@@ -14,7 +14,9 @@ async def get_refresh_token_from_headers(authorization: str = Header(None)):
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() == "bearer" and token:
             return token
-    raise HTTPException(status_code=403, detail="Could not validate credentials")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN, detail="Could not validate credentials"
+    )
 
 
 async def get_auth_service(db: AsyncSession = Depends(get_db)):
@@ -26,7 +28,7 @@ async def is_admin(
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> User:
     current_user = await auth_service.get_user_from_token(token)
-    if current_user.role_id != 1:
+    if current_user.role.name != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have the necessary permissions",

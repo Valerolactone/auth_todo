@@ -76,7 +76,9 @@ async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
     users = await service.get_users_with_emails(body.ids)
 
     if not users:
-        raise HTTPException(status_code=404, detail="Users not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Users not found"
+        )
 
     for user_row in users:
         users_with_emails[user_row[0].user_pk] = user_row[0].email
@@ -114,7 +116,7 @@ async def create_user(
 @user_router.get("/", response_model=PaginatedResponse)
 async def read_users(
     page: int = Query(1, ge=1),
-    limit: int = Query(100, ge=1),
+    page_size: int = Query(100, ge=1),
     sort_by: str = Query('user_pk', alias='sortBy'),
     sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
     filter_by: Optional[str] = Query(None, alias='filterBy'),
@@ -122,7 +124,7 @@ async def read_users(
 ):
     user_service = UserService(db)
     return await user_service.get_paginated_users(
-        page, limit, sort_by, sort_order, filter_by
+        page, page_size, sort_by, sort_order, filter_by
     )
 
 
@@ -144,11 +146,6 @@ async def update_user(
     db: AsyncSession = Depends(get_db),
     user_pk: str = Path(...),
 ):
-    if current_user.user_pk != user_pk:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have the necessary permissions.",
-        )
     user_service = UserService(db)
     return await user_service.update_user(int(user_pk), user_data)
 
@@ -264,7 +261,13 @@ async def login(
             detail="Incorrect username or password",
         )
 
-    user_data = {"sub": user.email, "user_pk": user.user_pk, "role_id": user.role_id}
+    user_data = {
+        "sub": user.email,
+        "user_pk": user.user_pk,
+        "role": user.role.name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+    }
     token_service = TokenService(db_session=db, data=user_data)
     access_token_data = token_service.create_access_token()
     result.update(access_token_data)
@@ -287,13 +290,17 @@ async def refresh_access_token(
     token_dal = TokenDAL(db)
     is_refresh_token_in_db = await token_dal.validate_refresh_token(refresh_token)
     if not is_refresh_token_in_db:
-        raise HTTPException(status_code=404, detail="Refresh token not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Refresh token not found"
+        )
     result.update({"refresh_token": refresh_token})
 
     auth_service = AuthenticationService(db)
     user = await auth_service.get_user_from_token(refresh_token)
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     user_data = {"sub": user.email, "user_pk": user.user_pk}
 

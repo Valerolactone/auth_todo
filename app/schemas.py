@@ -87,6 +87,21 @@ class RoleOut(TunedModel):
     description: str
 
 
-class RolePermission(TunedModel):
+class RolePermissionData(BaseModel):
+    role: str
+    permission: str
+
+
+class RolePermissionOut(TunedModel):
     role_pk: int
+    role: str
     permission_pk: int
+    permission: str
+
+
+class RoleWithPermissionOut(RoleOut):
+    permissions: List[PermissionOut]
+
+
+class PermissionWithRoleOut(PermissionOut):
+    roles: List[RoleOut]

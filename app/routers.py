@@ -11,11 +11,14 @@ from schemas import (
     PermissionCreate,
     PermissionOut,
     PermissionUpdate,
+    PermissionWithRoleOut,
     ResetForgetPassword,
     RoleCreate,
     RoleOut,
-    RolePermission,
+    RolePermissionData,
+    RolePermissionOut,
     RoleUpdate,
+    RoleWithPermissionOut,
     Token,
     UserCreate,
     UserEmail,
@@ -253,13 +256,17 @@ async def create_permission(
     return await permission_service.create_permission(permission)
 
 
-@permission_router.get("/", response_model=List[PermissionOut])
+@permission_router.get(
+    "/", response_model=List[PermissionOut], status_code=status.HTTP_200_OK
+)
 async def read_permissions(db: AsyncSession = Depends(get_db)):
     permission_service = PermissionService(db)
     return await permission_service.read_permissions()
 
 
-@permission_router.get("/{permission_pk}", response_model=PermissionOut)
+@permission_router.get(
+    "/{permission_pk}", response_model=PermissionOut, status_code=status.HTTP_200_OK
+)
 async def read_permission(
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
@@ -268,7 +275,9 @@ async def read_permission(
     return await permission_service.read_permission(int(permission_pk))
 
 
-@permission_router.put("/{permission_pk}", response_model=PermissionOut)
+@permission_router.put(
+    "/{permission_pk}", response_model=PermissionOut, status_code=status.HTTP_200_OK
+)
 async def update_permission(
     permission: PermissionUpdate,
     admin_user: User = Depends(utils.get_admin_user),
@@ -279,7 +288,9 @@ async def update_permission(
     return await permission_service.update_permission(int(permission_pk), permission)
 
 
-@permission_router.delete("/{permission_pk}", response_model=PermissionOut)
+@permission_router.delete(
+    "/{permission_pk}", response_model=PermissionOut, status_code=status.HTTP_200_OK
+)
 async def delete_permission(
     admin_user: User = Depends(utils.get_admin_user),
     db: AsyncSession = Depends(get_db),
@@ -299,13 +310,13 @@ async def create_role(
     return await role_service.create_role(role)
 
 
-@role_router.get("/", response_model=List[RoleOut])
+@role_router.get("/", response_model=List[RoleOut], status_code=status.HTTP_200_OK)
 async def read_roles(db: AsyncSession = Depends(get_db)):
     role_service = RoleService(db)
     return await role_service.read_roles()
 
 
-@role_router.get("/{role_pk}", response_model=RoleOut)
+@role_router.get("/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK)
 async def read_role(
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
@@ -314,7 +325,7 @@ async def read_role(
     return await role_service.read_role(int(role_pk))
 
 
-@role_router.put("/{role_pk}", response_model=RoleOut)
+@role_router.put("/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK)
 async def update_role(
     role: RoleUpdate,
     admin_user: User = Depends(utils.get_admin_user),
@@ -325,7 +336,9 @@ async def update_role(
     return await role_service.update_role(int(role_pk), role)
 
 
-@role_router.delete("/{role_pk}", response_model=RoleOut)
+@role_router.delete(
+    "/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK
+)
 async def delete_role(
     admin_user: User = Depends(utils.get_admin_user),
     db: AsyncSession = Depends(get_db),
@@ -335,9 +348,11 @@ async def delete_role(
     return await role_service.delete_role(int(role_pk))
 
 
-@role_permissions_router.post("/")
+@role_permissions_router.post(
+    "/", response_model=RolePermissionOut, status_code=status.HTTP_201_CREATED
+)
 async def assign_permission_to_role(
-    role_and_permission: RolePermission,
+    role_and_permission: RolePermissionData,
     admin_user: User = Depends(utils.get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -345,29 +360,39 @@ async def assign_permission_to_role(
     return await role_permission_service.create_role_permission(role_and_permission)
 
 
-@role_permissions_router.get("/role/{role_pk}/permissions/")
+@role_permissions_router.get(
+    "/role/{role_pk}/permissions/",
+    response_model=RoleWithPermissionOut,
+    status_code=status.HTTP_200_OK,
+)
 async def read_permissions_for_role(
     admin_user: User = Depends(utils.get_admin_user),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
     role_permission_service = RolePermissionService(db)
-    return await role_permission_service.get_permissions_for_role(int(role_pk))
+    return await role_permission_service.get_role_with_permissions(int(role_pk))
 
 
-@role_permissions_router.get("/permission/{permission_pk}/roles/")
+@role_permissions_router.get(
+    "/permission/{permission_pk}/roles/",
+    response_model=PermissionWithRoleOut,
+    status_code=status.HTTP_200_OK,
+)
 async def read_roles_for_permission(
     admin_user: User = Depends(utils.get_admin_user),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
     role_permission_service = RolePermissionService(db)
-    return await role_permission_service.get_permissions_for_role(int(permission_pk))
+    return await role_permission_service.get_permission_with_roles(int(permission_pk))
 
 
-@role_permissions_router.delete("/")
+@role_permissions_router.delete(
+    "/", response_model=RolePermissionOut, status_code=status.HTTP_200_OK
+)
 async def remove_permission_from_role(
-    role_and_permission: RolePermission,
+    role_and_permission: RolePermissionData,
     admin_user: User = Depends(utils.get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):

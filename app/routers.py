@@ -1,6 +1,5 @@
 import os
 from datetime import datetime, timezone
-from logging import getLogger
 from typing import List, Optional
 
 import utils
@@ -14,7 +13,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from schemas import (
     AdminUserUpdate,
     ExpandUserData,
@@ -54,8 +53,6 @@ from db.dals import TokenDAL
 from db.models import User
 from db.session import get_db
 
-logger = getLogger(__name__)
-
 admin_router = APIRouter()
 user_router = APIRouter()
 login_router = APIRouter()
@@ -63,6 +60,8 @@ permission_router = APIRouter()
 role_router = APIRouter()
 
 role_permissions_router = APIRouter()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
 
 @user_router.post(
@@ -137,35 +136,29 @@ async def read_user(
     return await user_service.read_user(int(user_pk))
 
 
-@user_router.put("/{user_pk}", response_model=UserOut)
+@user_router.put("/my_profile", response_model=UserOut)
 async def update_user(
     user_data: UserUpdate,
-    current_user: User = Depends(
-        lambda: utils.is_authenticated_user(user_pk=Path(...))
-    ),
+    token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
-    user_pk: str = Path(...),
 ):
     user_service = UserService(db)
-    return await user_service.update_user(int(user_pk), user_data)
+    return await user_service.update_user(token, user_data)
 
 
-@user_router.delete("/{user_pk}", response_model=UserOut)
+@user_router.delete("/my_profile", response_model=UserOut)
 async def delete_user(
-    current_user: User = Depends(
-        lambda: utils.is_authenticated_user(user_pk=Path(...))
-    ),
+    token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
-    user_pk: str = Path(...),
 ):
     user_service = UserService(db)
-    return await user_service.delete_user(int(user_pk))
+    return await user_service.delete_user(token)
 
 
 @admin_router.get("/", response_model=PaginatedResponse)
 async def admin_read_users(
     page: int = Query(1, ge=1),
-    limit: int = Query(100, ge=1),
+    page_size: int = Query(100, ge=1),
     sort_by: str = Query('user_pk', alias='sortBy'),
     sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
     filter_by: Optional[str] = Query(None, alias='filterBy'),
@@ -174,7 +167,7 @@ async def admin_read_users(
 ):
     user_service = AdminUserService(db)
     return await user_service.admin_get_paginated_users(
-        page, limit, sort_by, sort_order, filter_by
+        page, page_size, sort_by, sort_order, filter_by
     )
 
 

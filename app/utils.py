@@ -34,22 +34,3 @@ async def is_admin(
             detail="You do not have the necessary permissions",
         )
     return current_user
-
-
-async def is_authenticated_user(
-    token: str = Depends(oauth2_scheme),
-    auth_service: AuthenticationService = Depends(get_auth_service),
-    user_pk: int = None,
-) -> User:
-    current_user = await auth_service.get_user_from_token(token)
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="You are not authorized",
-        )
-    if user_pk is not None and current_user.user_pk != user_pk:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have the necessary permissions.",
-        )
-    return current_user

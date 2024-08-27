@@ -71,7 +71,7 @@ class UserDAL:
         return user
 
     async def get_users_emails_for_notification(
-            self, users_ids: list[int]
+        self, users_ids: list[int]
     ) -> Sequence[User]:
         query = select(User).filter(User.user_pk.in_(users_ids))
         result = await self.db_session.execute(query)
@@ -85,13 +85,14 @@ class UserDAL:
         return result.scalar_one()
 
     async def fetch_users(
-            self,
-            skip: int,
-            page_size: int,
-            sort_by: str,
-            sort_order: str,
-            filter_by: Optional[str] = None,
+        self,
+        page: int,
+        page_size: int,
+        sort_by: str,
+        sort_order: str,
+        filter_by: Optional[str] = None,
     ) -> Sequence[User]:
+        skip = (page - 1) * page_size
         if sort_by not in ALLOWED_SORT_FIELDS:
             raise ValueError(f"Invalid sort field: {sort_by}")
 
@@ -113,7 +114,7 @@ class UserDAL:
         return result.scalars().all()
 
     async def update_user(
-            self, user_pk: int, user_data: UserUpdate | AdminUserUpdate
+        self, user_pk: int, user_data: UserUpdate | AdminUserUpdate
     ) -> User:
         role_dal = RoleDAL(db_session=self.db_session)
         update_data = user_data.dict(exclude_unset=True)
@@ -123,7 +124,9 @@ class UserDAL:
                 for key, value in update_data.items():
                     setattr(db_user, key, value)
             else:
-                role_pk = await role_dal.get_role_pk_by_name(role_name=user_data.role_name)
+                role_pk = await role_dal.get_role_pk_by_name(
+                    role_name=user_data.role_name
+                )
                 db_user.role_id = role_pk
                 db_user.is_active = user_data.is_active
 
@@ -246,7 +249,7 @@ class RolePermissionDAL:
         self.db_session = db_session
 
     async def get_role_permission(
-            self, role_pk: int, permission_pk: int
+        self, role_pk: int, permission_pk: int
     ) -> RolePermission | None:
         query = select(RolePermission).where(
             and_(

@@ -44,7 +44,7 @@ class PaginatedResponse(TunedModel):
     users: List[Union[UserOut, ExpandUserData]]
     total: int
     page: int
-    limit: int
+    page_size: int
     total_pages: int
     has_next: bool
     has_prev: bool

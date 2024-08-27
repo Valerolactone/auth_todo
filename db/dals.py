@@ -5,7 +5,7 @@ from typing import Optional, Sequence
 from fastapi import HTTPException, status
 from schemas import AdminUserUpdate, UserCreate, UserUpdate
 from sqlalchemy import and_, asc, desc, func, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -50,9 +50,16 @@ class UserDAL:
 
     async def get_user_by_email(self, email: str) -> User | None:
         query = select(User).where(User.email == email).options(joinedload(User.role))
-        result = await self.db_session.execute(query)
-        user = result.scalar_one_or_none()
-        return user
+        try:
+            result = await self.db_session.execute(query)
+            user = result.scalar_one_or_none()
+            return user
+        except SQLAlchemyError as err:
+            logger.error("Error during getting user by email: %s", str(err))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get user by email",
+            )
 
     async def get_user_by_pk(self, user_pk: int) -> User:
         query = (
@@ -61,14 +68,18 @@ class UserDAL:
         try:
             result = await self.db_session.execute(query)
             user = result.scalar_one()
+            return user
+        except NoResultFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with pk {user_pk} not found.",
+            )
         except SQLAlchemyError as err:
-            await self.db_session.rollback()
             logger.error("Error during getting user by pk: %s", str(err))
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to get user by pk",
             )
-        return user
 
     async def get_users_emails_for_notification(
         self, users_ids: list[int]
@@ -232,14 +243,18 @@ class RoleDAL:
         try:
             result = await self.db_session.execute(query)
             role_pk = result.scalar_one()
+            return role_pk
+        except NoResultFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Role with name '{role_name}' not found.",
+            )
         except SQLAlchemyError as err:
-            await self.db_session.rollback()
             logger.error("Error during getting role_pk from name: %s", str(err))
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to get role_pk from name",
             )
-        return role_pk
 
 
 class RolePermissionDAL:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.routers import (
+    admin_router,
     login_router,
     permission_router,
     role_permissions_router,
@@ -64,6 +65,8 @@ def health_check():
 
 
 main_api_router = APIRouter()
+
+main_api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 main_api_router.include_router(user_router, prefix="/users", tags=["users"])
 main_api_router.include_router(login_router, prefix="/login", tags=["login"])
 main_api_router.include_router(

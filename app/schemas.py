@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, EmailStr
 
@@ -22,7 +22,6 @@ class UserCreate(BaseModel):
     last_name: str
     email: EmailStr
     password: str
-    role_id: int
 
 
 class UserOut(TunedModel):
@@ -30,13 +29,36 @@ class UserOut(TunedModel):
     first_name: str
     last_name: str
     email: EmailStr
-    role_id: int
+    role: str
 
 
 class ExpandUserData(UserOut):
+    role_id: int
     created_at: datetime
-    deleted_at: datetime
+    deleted_at: Optional[datetime] = None
     is_active: bool
+    is_verified: bool
+
+
+class PaginatedResponse(TunedModel):
+    users: List[Union[UserOut, ExpandUserData]]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
+
+
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AdminUserUpdate(BaseModel):
+    role_name: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class Token(BaseModel):

@@ -1,13 +1,23 @@
 import os
 from datetime import datetime, timezone
-from logging import getLogger
-from typing import List
+from typing import List, Optional
 
 import utils
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
-from fastapi.responses import JSONResponse
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    status,
+)
+from fastapi.responses import JSONResponse, Response
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from schemas import (
+    AdminUserUpdate,
+    ExpandUserData,
+    PaginatedResponse,
     PermissionCreate,
     PermissionOut,
     PermissionUpdate,
@@ -25,11 +35,13 @@ from schemas import (
     UserIds,
     UserOut,
     UsersWithEmails,
+    UserUpdate,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
 
 from app.services import (
+    AdminUserService,
     AuthenticationService,
     ConfirmRegistrationService,
     EmailTokenService,
@@ -44,13 +56,15 @@ from db.dals import TokenDAL
 from db.models import User
 from db.session import get_db
 
-logger = getLogger(__name__)
+admin_router = APIRouter()
 user_router = APIRouter()
 login_router = APIRouter()
 permission_router = APIRouter()
 role_router = APIRouter()
 
 role_permissions_router = APIRouter()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
 
 @user_router.post(
@@ -59,27 +73,19 @@ role_permissions_router = APIRouter()
     status_code=status.HTTP_200_OK,
 )
 async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
-    users_with_emails = {}
     service = UserService(db)
     users = await service.get_users_with_emails(body.ids)
-
-    if not users:
-        raise HTTPException(status_code=404, detail="Users not found")
-
-    for user_row in users:
-        users_with_emails[user_row[0].user_pk] = user_row[0].email
-
-    return {"users": users_with_emails}
+    return users
 
 
-@user_router.post("/create", response_model=UserOut)
-async def register(
+@user_router.post("/register", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def create_user(
     background_tasks: BackgroundTasks,
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
 ):
     user_service = UserService(db)
-    await user_service.register(body)
+    user = await user_service.create_user(body)
     email_registration_confirmation_service = EmailTokenService(
         subject="Confirm Registration Instructions",
         action="confirm your email",
@@ -91,12 +97,103 @@ async def register(
         email_registration_confirmation_service.send_email_with_link
     )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "Registration confirmation instructions have been sent to your email."
-        },
+    return user
+
+
+@user_router.get("/", response_model=PaginatedResponse, status_code=status.HTTP_200_OK)
+async def read_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1),
+    sort_by: str = Query('user_pk', alias='sortBy'),
+    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    filter_by: Optional[str] = Query(None, alias='filterBy'),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    return await user_service.get_paginated_users(
+        page, page_size, sort_by, sort_order, filter_by
     )
+
+
+@user_router.get("/{user_pk}", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def read_user(
+    db: AsyncSession = Depends(get_db),
+    user_pk: int = Path(...),
+):
+    user_service = UserService(db)
+    return await user_service.read_user(user_pk)
+
+
+@user_router.put("/my_profile", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def update_user(
+    user_data: UserUpdate,
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    return await user_service.update_user(token, user_data)
+
+
+@user_router.delete("/my_profile", response_model=UserOut)
+async def delete_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    await user_service.delete_user(token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@admin_router.get("/", response_model=PaginatedResponse, status_code=status.HTTP_200_OK)
+async def admin_read_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1),
+    sort_by: str = Query('user_pk', alias='sortBy'),
+    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    filter_by: Optional[str] = Query(None, alias='filterBy'),
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_get_paginated_users(
+        page, page_size, sort_by, sort_order, filter_by
+    )
+
+
+@admin_router.get(
+    "/{user_pk}", response_model=ExpandUserData, status_code=status.HTTP_200_OK
+)
+async def admin_read_user(
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+    user_pk: int = Path(...),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_read_user(user_pk)
+
+
+@admin_router.put(
+    "/{user_pk}", response_model=ExpandUserData, status_code=status.HTTP_200_OK
+)
+async def admin_update_user(
+    user_data: AdminUserUpdate,
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+    user_pk: int = Path(...),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_update_user(user_pk, user_data)
+
+
+@admin_router.delete("/{user_pk}")
+async def admin_delete_user(
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+    user_pk: int = Path(...),
+):
+    user_service = AdminUserService(db)
+    await user_service.admin_delete_user(user_pk)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @user_router.post("/resend-confirmation-link")
@@ -114,12 +211,7 @@ async def send_new_confirmation_link(
         email_registration_confirmation_service.send_email_with_link
     )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "Registration confirmation instructions have been sent to your email."
-        },
-    )
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @user_router.get("/confirm-registration/{secret_token}")
@@ -128,11 +220,7 @@ async def confirm_email(
     secret_token: str = Path(...),
 ):
     await ConfirmRegistrationService.confirm_registration(db, secret_token)
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={"message": "Registration has been successfully confirmed!"},
-    )
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
@@ -151,7 +239,13 @@ async def login(
             detail="Incorrect username or password",
         )
 
-    user_data = {"sub": user.email, "user_pk": user.user_pk, "role_id": user.role_id}
+    user_data = {
+        "sub": user.email,
+        "user_pk": user.user_pk,
+        "role": user.role.name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+    }
     token_service = TokenService(db_session=db, data=user_data)
     access_token_data = token_service.create_access_token()
     result.update(access_token_data)
@@ -174,13 +268,17 @@ async def refresh_access_token(
     token_dal = TokenDAL(db)
     is_refresh_token_in_db = await token_dal.validate_refresh_token(refresh_token)
     if not is_refresh_token_in_db:
-        raise HTTPException(status_code=404, detail="Refresh token not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Refresh token not found"
+        )
     result.update({"refresh_token": refresh_token})
 
     auth_service = AuthenticationService(db)
     user = await auth_service.get_user_from_token(refresh_token)
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     user_data = {"sub": user.email, "user_pk": user.user_pk}
 
@@ -249,7 +347,7 @@ async def reset_password(
 )
 async def create_permission(
     permission: PermissionCreate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     permission_service = PermissionService(db)
@@ -280,7 +378,7 @@ async def read_permission(
 )
 async def update_permission(
     permission: PermissionUpdate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
@@ -292,7 +390,7 @@ async def update_permission(
     "/{permission_pk}", response_model=PermissionOut, status_code=status.HTTP_200_OK
 )
 async def delete_permission(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
@@ -303,7 +401,7 @@ async def delete_permission(
 @role_router.post("/", response_model=RoleOut, status_code=status.HTTP_201_CREATED)
 async def create_role(
     role: RoleCreate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     role_service = RoleService(db)
@@ -328,7 +426,7 @@ async def read_role(
 @role_router.put("/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK)
 async def update_role(
     role: RoleUpdate,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
@@ -340,7 +438,7 @@ async def update_role(
     "/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK
 )
 async def delete_role(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
@@ -353,7 +451,7 @@ async def delete_role(
 )
 async def assign_permission_to_role(
     role_and_permission: RolePermissionData,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     role_permission_service = RolePermissionService(db)
@@ -366,7 +464,7 @@ async def assign_permission_to_role(
     status_code=status.HTTP_200_OK,
 )
 async def read_permissions_for_role(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     role_pk: str = Path(...),
 ):
@@ -380,7 +478,7 @@ async def read_permissions_for_role(
     status_code=status.HTTP_200_OK,
 )
 async def read_roles_for_permission(
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
     permission_pk: str = Path(...),
 ):
@@ -393,7 +491,7 @@ async def read_roles_for_permission(
 )
 async def remove_permission_from_role(
     role_and_permission: RolePermissionData,
-    admin_user: User = Depends(utils.get_admin_user),
+    admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
     role_permission_service = RolePermissionService(db)

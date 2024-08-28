@@ -21,7 +21,7 @@ class User(Base):
     is_verified = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
-    role_id = Column(Integer, ForeignKey('roles.role_pk'), default=2)
+    role_id = Column(Integer, ForeignKey('roles.role_pk'), nullable=False)
 
     role = relationship('Role', back_populates='users')
 

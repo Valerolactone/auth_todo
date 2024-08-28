@@ -1,18 +1,9 @@
 import os
-from datetime import datetime, timezone
 from typing import List, Optional
 
 import utils
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    HTTPException,
-    Path,
-    Query,
-    status,
-)
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, status
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from schemas import (
     AdminUserUpdate,
@@ -35,7 +26,6 @@ from schemas import (
     UserUpdate,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils import get_refresh_token_from_headers
 
 from app.services import (
     AdminUserService,
@@ -49,7 +39,6 @@ from app.services import (
     TokenService,
     UserService,
 )
-from db.dals import TokenDAL
 from db.models import User
 from db.session import get_db
 
@@ -224,73 +213,22 @@ async def confirm_email(
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
 ):
-    result = {
-        "token_type": "bearer",
-    }
-    service = AuthenticationService(db)
-    user = await service.authenticate_user(form_data.username, form_data.password)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-
-    user_data = {
-        "sub": user.email,
-        "user_pk": user.user_pk,
-        "role": user.role.name,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-    }
-    token_service = TokenService(db_session=db, data=user_data)
-    access_token_data = token_service.create_access_token()
-    result.update(access_token_data)
-
+    token_service = TokenService(db_session=db, form_data=form_data)
+    token_data = await token_service.create_access_token()
     refresh_token = await token_service.add_refresh_token_to_db()
-    result.update({"refresh_token": refresh_token})
-
-    return result
+    return token_data.update(refresh_token)
 
 
 @login_router.post(
     "/token/refresh", response_model=Token, status_code=status.HTTP_200_OK
 )
 async def refresh_access_token(
-    refresh_token: str = Depends(get_refresh_token_from_headers),
+    refresh_token: str = Depends(utils.get_refresh_token_from_headers),
     db: AsyncSession = Depends(get_db),
 ):
-    result = {"token_type": "bearer"}
-
-    token_dal = TokenDAL(db)
-    is_refresh_token_in_db = await token_dal.validate_refresh_token(refresh_token)
-    if not is_refresh_token_in_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Refresh token not found"
-        )
-    result.update({"refresh_token": refresh_token})
-
-    auth_service = AuthenticationService(db)
-    user = await auth_service.get_user_from_token(refresh_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-
-    user_data = {"sub": user.email, "user_pk": user.user_pk}
-
-    db_refresh_token = await token_dal.get_refresh_token(refresh_token)
-
-    token_service = TokenService(db_session=db, data=user_data)
-
-    if db_refresh_token.expires_at < datetime.now(timezone.utc):
-        updated_refresh_token = await token_service.update_refresh_token_in_db()
-        result.update({"refresh_token": updated_refresh_token})
-
-    access_token_data = token_service.create_access_token()
-    result.update(access_token_data)
-
-    return result
+    token_service = TokenService(db)
+    access_token = await token_service.update_access_token(refresh_token)
+    return access_token
 
 
 @login_router.post("/forget-password")
@@ -300,13 +238,7 @@ async def forget_password(
     db: AsyncSession = Depends(get_db),
 ):
     user_service = AuthenticationService(db)
-
     user = await user_service.get_user_by_email(forget_password_request.email)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No user with this email was found.",
-        )
 
     email_password_reset_service = EmailTokenService(
         subject="Password Reset Instructions",
@@ -317,12 +249,7 @@ async def forget_password(
 
     background_tasks.add_task(email_password_reset_service.send_email_with_link)
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "Password reset instructions have been sent to your email."
-        },
-    )
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @login_router.post("/reset-password/{secret_token}")
@@ -333,10 +260,7 @@ async def reset_password(
 ):
     await ResetPasswordService.reset_password(db, secret_token, reset_forget_password)
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={"message": "Password has been successfully reset!"},
-    )
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @permission_router.post(

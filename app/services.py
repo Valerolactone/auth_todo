@@ -4,6 +4,7 @@ from typing import Optional, Sequence
 
 import jwt
 from fastapi import HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,13 +19,14 @@ from app.schemas import (
     RoleCreate,
     RolePermission,
     RoleUpdate,
+    Token,
     UserCreate,
     UserOut,
     UsersWithEmails,
     UserUpdate,
 )
 from db.dals import PermissionDAL, RoleDAL, RolePermissionDAL, TokenDAL, UserDAL
-from db.models import Permission, RefreshToken, Role, User
+from db.models import Permission, Role, User
 
 
 class UserService:
@@ -228,17 +230,25 @@ class AuthenticationService:
             detail="Could not validate credentials",
         )
 
-    async def get_user_by_email(self, email: str) -> User | None:
-        async with self.db_session.begin():
-            return await self.user_dal.get_user_by_email(email=email)
-
-    async def authenticate_user(self, email: str, password: str) -> User | None:
-        user = await self.get_user_by_email(email=email)
-        if user is None or not user.verify_password(password):
-            return None
+    async def get_user_by_email(self, email: str) -> User:
+        user = await self.user_dal.get_user_by_email(email=email)
+        if user is None:
+            raise HTTPException(
+                detail=f'User with the email {email} not found',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         return user
 
-    async def get_user_from_token(self, token: str) -> User | None:
+    async def authenticate_user(self, email: str, password: str) -> User:
+        user = await self.get_user_by_email(email=email)
+        if not user.verify_password(password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+        return user
+
+    async def get_user_from_token(self, token: str) -> User:
         try:
             payload = jwt.decode(
                 token,
@@ -248,20 +258,39 @@ class AuthenticationService:
             user_pk: str = payload.get("user_pk")
             if user_pk is None:
                 raise self._credentials_exception
+            return await self.user_dal.get_user_by_pk(user_pk=user_pk)
         except jwt.PyJWTError:
             raise self._credentials_exception
-        user_dal = UserDAL(self.db_session)
-
-        return await user_dal.get_user_by_pk(user_pk=user_pk)
 
 
 class TokenService:
-    def __init__(self, db_session: AsyncSession, data: dict):
-        self.db_session = db_session
-        self.data = data
+    def __init__(
+        self, db_session: AsyncSession, form_data: OAuth2PasswordRequestForm = None
+    ):
+        self.token_dal = TokenDAL(db_session)
+        self.auth_service = AuthenticationService(db_session)
+        self.user_dal = UserDAL(db_session)
+        if form_data:
+            self.form_data = form_data
 
-    def create_access_token(self, expires_delta: Optional[timedelta] = None) -> dict:
-        to_encode = self.data.copy()
+    async def _set_jwt_payload(self) -> dict:
+        user = await self.auth_service.authenticate_user(
+            self.form_data.username, self.form_data.password
+        )
+        return {
+            "sub": user.email,
+            "user_pk": user.user_pk,
+            "role": user.role.name,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        }
+
+    async def create_access_token(
+        self, user_data: dict = None, expires_delta: Optional[timedelta] = None
+    ) -> Token:
+        if user_data is None:
+            user_data = await self._set_jwt_payload()
+        to_encode = user_data.copy()
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
         else:
@@ -272,10 +301,60 @@ class TokenService:
         token = jwt.encode(
             to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
         )
-        return {"access_token": token, "access_token_expires_at": expire}
+        return Token(
+            access_token=token, access_token_expires_at=expire, token_type="Bearer"
+        )
 
-    def _create_refresh_token(self) -> dict:
-        to_encode = self.data.copy()
+    async def update_access_token(self, refresh_token: str) -> Token:
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                os.getenv("JWT_SECRET_KEY"),
+                algorithms=[os.getenv("JWT_ALGORITHM")],
+            )
+            user_pk = payload.get("user_pk")
+            if user_pk is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid refresh token",
+                )
+            user = await self.user_dal.get_user_by_pk(user_pk=user_pk)
+            user_data = {
+                "sub": user.email,
+                "user_pk": user.user_pk,
+                "role": user.role.name,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+            stored_refresh_token = self.token_dal.get_refresh_token(refresh_token)
+            return await self.create_access_token(user_data)
+        except jwt.ExpiredSignatureError:
+            stored_refresh_token = await self.token_dal.get_refresh_token(refresh_token)
+            user = await self.user_dal.get_user_by_pk(
+                user_pk=stored_refresh_token.user_pk
+            )
+            user_data = {
+                "sub": user.email,
+                "user_pk": user.user_pk,
+                "role": user.role.name,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+            new_refresh_token = await self.update_refresh_token_in_db(
+                old_refresh_token=stored_refresh_token.token, user_data=user_data
+            )
+            access_token = await self.create_access_token(user_data)
+            return Token(access_token=access_token, refresh_token=new_refresh_token)
+        except jwt.PyJWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+            )
+
+    async def _create_refresh_token(self, user_data: dict = None) -> dict:
+        if user_data is None:
+            user_data = await self._set_jwt_payload()
+        to_encode = user_data.copy()
         expire = datetime.utcnow() + timedelta(
             days=int(os.getenv("REFRESH_TOKEN_EXPIRATION_TIME"))
         )
@@ -283,51 +362,25 @@ class TokenService:
         token = jwt.encode(
             to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
         )
-        return {"refresh_token": token, "expires_at": expire}
+        return {
+            "user_pk": user_data["user_pk"],
+            "refresh_token": token,
+            "expires_at": expire,
+        }
 
-    async def add_refresh_token_to_db(self) -> str:
-        refresh_token_data = self._create_refresh_token()
-        refresh_token = refresh_token_data["refresh_token"]
-        expires_at = refresh_token_data["expires_at"]
-        db_refresh_token = RefreshToken(
-            user_pk=self.data["user_pk"], token=refresh_token, expires_at=expires_at
+    async def add_refresh_token_to_db(self) -> dict:
+        data = await self._create_refresh_token()
+        await self.token_dal.add_refresh_token(data=data)
+        return {"refresh_token": data["refresh_token"]}
+
+    async def update_refresh_token_in_db(
+        self, old_refresh_token: str, user_data: dict
+    ) -> str:
+        data = await self._create_refresh_token(user_data=user_data)
+        await self.token_dal.update_refresh_token(
+            old_refresh_token=old_refresh_token, data=data
         )
-        try:
-            self.db_session.add(db_refresh_token)
-            await self.db_session.flush()
-        except SQLAlchemyError as e:
-            await self.db_session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-            )
-
-        return refresh_token
-
-    async def update_refresh_token_in_db(self) -> str:
-        refresh_token_data = self._create_refresh_token()
-        refresh_token = refresh_token_data["refresh_token"]
-        expires_at = refresh_token_data["expires_at"]
-        token_dal = TokenDAL(self.db_session)
-        try:
-            db_refresh_token = await token_dal.get_refresh_token(self.data["user_pk"])
-            if not db_refresh_token:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Refresh token not found",
-                )
-
-            db_refresh_token.token = refresh_token
-            db_refresh_token.expires_at = expires_at
-
-            await self.db_session.flush()
-            await self.db_session.refresh(db_refresh_token)
-        except SQLAlchemyError as e:
-            await self.db_session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-            )
-
-        return refresh_token
+        return data["refresh_token"]
 
 
 class EmailTokenService:

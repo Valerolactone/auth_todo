@@ -211,19 +211,57 @@ class TokenDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def get_refresh_token(self, token: str) -> RefreshToken | None:
+    async def add_refresh_token(self, data: dict):
+        async with self.db_session.begin():
+            db_refresh_token = RefreshToken(
+                user_pk=data["user_pk"],
+                token=data["refresh_token"],
+                expires_at=data["expires_at"],
+            )
+            try:
+                self.db_session.add(db_refresh_token)
+                await self.db_session.flush()
+            except SQLAlchemyError as err:
+                logger.error("Error during addition refresh token: %s", str(err))
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to add refresh token",
+                )
+
+    async def get_refresh_token(self, token: str) -> RefreshToken:
         query = select(RefreshToken).where(
             and_(RefreshToken.token == token, RefreshToken.is_revoked == False)
         )
-        result = await self.db_session.execute(query)
-        refresh_token_row = result.fetchone()
-        if refresh_token_row is None:
-            return
-        return refresh_token_row[0]
+        try:
+            result = await self.db_session.execute(query)
+            refresh_token = result.scalar_one()
+            return refresh_token
+        except NoResultFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Refresh token {token} not found.",
+            )
+        except SQLAlchemyError as err:
+            logger.error("Error during getting refresh token: %s", str(err))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get refresh token",
+            )
 
-    async def validate_refresh_token(self, token: str) -> bool:
-        refresh_token = await self.get_refresh_token(token)
-        return False if refresh_token is None else True
+    async def update_refresh_token(self, old_refresh_token: str, data: dict):
+        async with self.db_session.begin():
+            try:
+                db_refresh_token = await self.get_refresh_token(old_refresh_token)
+                db_refresh_token.token = data["refresh_token"]
+                db_refresh_token.expires_at = data["expires_at"]
+                self.db_session.add(db_refresh_token)
+                await self.db_session.flush()
+            except SQLAlchemyError as err:
+                logger.error("Error during updating refresh token: %s", str(err))
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to update refresh token",
+                )
 
 
 class PermissionDAL:

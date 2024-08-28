@@ -238,6 +238,7 @@ class AuthenticationService:
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         return user
+      
 
     async def authenticate_user(self, email: str, password: str) -> User:
         user = await self.get_user_by_email(email=email)
@@ -367,6 +368,7 @@ class TokenService:
             "refresh_token": token,
             "expires_at": expire,
         }
+
 
     async def add_refresh_token_to_db(self) -> dict:
         data = await self._create_refresh_token()

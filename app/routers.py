@@ -1,8 +1,17 @@
 import os
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import utils
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    status,
+)
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from schemas import (
@@ -63,7 +72,7 @@ async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
     users = await service.get_users_with_emails(body.ids)
     return users
 
-
+ 
 @user_router.post("/register", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def create_user(
     background_tasks: BackgroundTasks,
@@ -99,6 +108,52 @@ async def read_users(
     return await user_service.get_paginated_users(
         page, page_size, sort_by, sort_order, filter_by
     )
+
+
+@user_router.get("/{user_pk}", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def read_user(
+    db: AsyncSession = Depends(get_db),
+    user_pk: int = Path(...),
+):
+    user_service = UserService(db)
+    return await user_service.read_user(user_pk)
+
+
+@user_router.put("/my_profile", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def update_user(
+    user_data: UserUpdate,
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    return await user_service.update_user(token, user_data)
+
+
+@user_router.delete("/my_profile", response_model=UserOut)
+async def delete_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = UserService(db)
+    await user_service.delete_user(token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@admin_router.get("/", response_model=PaginatedResponse, status_code=status.HTTP_200_OK)
+async def admin_read_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1),
+    sort_by: str = Query('user_pk', alias='sortBy'),
+    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    filter_by: Optional[str] = Query(None, alias='filterBy'),
+    admin_user: User = Depends(utils.is_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user_service = AdminUserService(db)
+    return await user_service.admin_get_paginated_users(
+        page, page_size, sort_by, sort_order, filter_by
+    )
+
 
 
 @user_router.get("/{user_pk}", response_model=UserOut, status_code=status.HTTP_200_OK)

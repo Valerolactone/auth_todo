@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timezone
+from logging import getLogger
 from typing import List, Optional
 
 import utils
@@ -37,6 +38,7 @@ from schemas import (
     UsersWithEmails,
     UserUpdate,
 )
+from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils import get_refresh_token_from_headers
 
@@ -56,6 +58,9 @@ from db.dals import TokenDAL
 from db.models import User
 from db.session import get_db
 
+logger = getLogger(__name__)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
+
 admin_router = APIRouter()
 user_router = APIRouter()
 login_router = APIRouter()
@@ -63,8 +68,6 @@ permission_router = APIRouter()
 role_router = APIRouter()
 
 role_permissions_router = APIRouter()
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
 
 @user_router.post(
@@ -350,16 +353,30 @@ async def create_permission(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    permission_service = PermissionService(db)
-    return await permission_service.create_permission(permission)
+    try:
+        permission_service = PermissionService(db)
+        return await permission_service.create_permission(permission)
+    except SQLAlchemyError as err:
+        logger.error("Error during permission creation: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create a permission.",
+        )
 
 
 @permission_router.get(
     "/", response_model=List[PermissionOut], status_code=status.HTTP_200_OK
 )
 async def read_permissions(db: AsyncSession = Depends(get_db)):
-    permission_service = PermissionService(db)
-    return await permission_service.read_permissions()
+    try:
+        permission_service = PermissionService(db)
+        return await permission_service.read_permissions()
+    except SQLAlchemyError as err:
+        logger.error("Error during getting all permissions: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get all permissions",
+        )
 
 
 @permission_router.get(
@@ -367,10 +384,22 @@ async def read_permissions(db: AsyncSession = Depends(get_db)):
 )
 async def read_permission(
     db: AsyncSession = Depends(get_db),
-    permission_pk: str = Path(...),
+    permission_pk: int = Path(...),
 ):
-    permission_service = PermissionService(db)
-    return await permission_service.read_permission(int(permission_pk))
+    try:
+        permission_service = PermissionService(db)
+        return await permission_service.read_permission(permission_pk)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permission with pk {permission_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during getting permission by pk: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get permission by pk",
+        )
 
 
 @permission_router.put(
@@ -380,22 +409,47 @@ async def update_permission(
     permission: PermissionUpdate,
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    permission_pk: str = Path(...),
+    permission_pk: int = Path(...),
 ):
-    permission_service = PermissionService(db)
-    return await permission_service.update_permission(int(permission_pk), permission)
+    try:
+        permission_service = PermissionService(db)
+        return await permission_service.update_permission(permission_pk, permission)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permission with pk {permission_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during updating permission: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update permission with pk {permission_pk}",
+        )
 
 
 @permission_router.delete(
-    "/{permission_pk}", response_model=PermissionOut, status_code=status.HTTP_200_OK
+    "/{permission_pk}",
 )
 async def delete_permission(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    permission_pk: str = Path(...),
+    permission_pk: int = Path(...),
 ):
-    permission_service = PermissionService(db)
-    return await permission_service.delete_permission(int(permission_pk))
+    try:
+        permission_service = PermissionService(db)
+        await permission_service.delete_permission(permission_pk)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permission with pk {permission_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during deleting permission: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete permission with pk {permission_pk}",
+        )
 
 
 @role_router.post("/", response_model=RoleOut, status_code=status.HTTP_201_CREATED)
@@ -404,23 +458,49 @@ async def create_role(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    role_service = RoleService(db)
-    return await role_service.create_role(role)
+    try:
+        role_service = RoleService(db)
+        return await role_service.create_role(role)
+    except SQLAlchemyError as err:
+        logger.error("Error during role creation: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create a role.",
+        )
 
 
 @role_router.get("/", response_model=List[RoleOut], status_code=status.HTTP_200_OK)
 async def read_roles(db: AsyncSession = Depends(get_db)):
-    role_service = RoleService(db)
-    return await role_service.read_roles()
+    try:
+        role_service = RoleService(db)
+        return await role_service.read_roles()
+    except SQLAlchemyError as err:
+        logger.error("Error during getting all roles: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get all roles",
+        )
 
 
 @role_router.get("/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK)
 async def read_role(
     db: AsyncSession = Depends(get_db),
-    role_pk: str = Path(...),
+    role_pk: int = Path(...),
 ):
-    role_service = RoleService(db)
-    return await role_service.read_role(int(role_pk))
+    try:
+        role_service = RoleService(db)
+        return await role_service.read_role(role_pk)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role with pk {role_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during getting role by pk: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get role by pk",
+        )
 
 
 @role_router.put("/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK)
@@ -428,22 +508,45 @@ async def update_role(
     role: RoleUpdate,
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    role_pk: str = Path(...),
+    role_pk: int = Path(...),
 ):
-    role_service = RoleService(db)
-    return await role_service.update_role(int(role_pk), role)
+    try:
+        role_service = RoleService(db)
+        return await role_service.update_role(role_pk, role)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role with pk {role_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during updating role: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update role with pk {role_pk}",
+        )
 
 
-@role_router.delete(
-    "/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK
-)
+@role_router.delete("/{role_pk}")
 async def delete_role(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    role_pk: str = Path(...),
+    role_pk: int = Path(...),
 ):
-    role_service = RoleService(db)
-    return await role_service.delete_role(int(role_pk))
+    try:
+        role_service = RoleService(db)
+        await role_service.delete_role(role_pk)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role with pk {role_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during deleting role: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete role with pk {role_pk}",
+        )
 
 
 @role_permissions_router.post(
@@ -454,8 +557,15 @@ async def assign_permission_to_role(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    role_permission_service = RolePermissionService(db)
-    return await role_permission_service.create_role_permission(role_and_permission)
+    try:
+        role_permission_service = RolePermissionService(db)
+        return await role_permission_service.create_role_permission(role_and_permission)
+    except SQLAlchemyError as err:
+        logger.error("Error during role permission creation: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create a role permission.",
+        )
 
 
 @role_permissions_router.get(
@@ -466,10 +576,22 @@ async def assign_permission_to_role(
 async def read_permissions_for_role(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    role_pk: str = Path(...),
+    role_pk: int = Path(...),
 ):
-    role_permission_service = RolePermissionService(db)
-    return await role_permission_service.get_role_with_permissions(int(role_pk))
+    try:
+        role_permission_service = RolePermissionService(db)
+        return await role_permission_service.get_role_with_permissions(role_pk)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role with pk {role_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during getting role with permissions: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get a role with permissions.",
+        )
 
 
 @role_permissions_router.get(
@@ -480,19 +602,45 @@ async def read_permissions_for_role(
 async def read_roles_for_permission(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    permission_pk: str = Path(...),
+    permission_pk: int = Path(...),
 ):
-    role_permission_service = RolePermissionService(db)
-    return await role_permission_service.get_permission_with_roles(int(permission_pk))
+    try:
+        role_permission_service = RolePermissionService(db)
+        return await role_permission_service.get_permission_with_roles(permission_pk)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permission with pk {permission_pk} not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error("Error during getting permission with roles: %s", str(err))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get a permission with roles.",
+        )
 
 
-@role_permissions_router.delete(
-    "/", response_model=RolePermissionOut, status_code=status.HTTP_200_OK
-)
+@role_permissions_router.delete("/")
 async def remove_permission_from_role(
     role_and_permission: RolePermissionData,
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    role_permission_service = RolePermissionService(db)
-    return await role_permission_service.delete_role_permission(role_and_permission)
+    try:
+        role_permission_service = RolePermissionService(db)
+        await role_permission_service.delete_role_permission(role_and_permission)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role '{role_and_permission.role}' or permission '{role_and_permission.permission}' not found.",
+        )
+    except SQLAlchemyError as err:
+        logger.error(
+            f"Error during deleting role-permission pair {role_and_permission.role}-{role_and_permission.permission}: %s",
+            str(err),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete a role-permission pair.",
+        )

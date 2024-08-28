@@ -509,9 +509,8 @@ class PermissionService:
         )
         return PermissionOut.from_orm(permission)
 
-    async def delete_permission(self, permission_pk: int) -> PermissionOut:
-        permission = await self.permission_dal.delete_permission(permission_pk)
-        return PermissionOut.from_orm(permission)
+    async def delete_permission(self, permission_pk: int):
+        await self.permission_dal.delete_permission(permission_pk)
 
 
 class RoleService:
@@ -534,9 +533,8 @@ class RoleService:
         role = await self.role_dal.update_role(role_pk, role_data)
         return RoleOut.from_orm(role)
 
-    async def delete_role(self, role_pk: int) -> RoleOut:
-        role = await self.role_dal.delete_role(role_pk)
-        return RoleOut.from_orm(role)
+    async def delete_role(self, role_pk: int):
+        await self.role_dal.delete_role(role_pk)
 
 
 class RolePermissionService:
@@ -590,13 +588,5 @@ class RolePermissionService:
             ],
         )
 
-    async def delete_role_permission(
-        self, data: RolePermissionData
-    ) -> RolePermissionOut:
-        db_role_permission = await self.role_permission_dal.delete_role_permission(data)
-        return RolePermissionOut(
-            role_pk=db_role_permission.role_pk,
-            role=data.role,
-            permission_pk=db_role_permission.permission_pk,
-            permission=data.permission,
-        )
+    async def delete_role_permission(self, data: RolePermissionData):
+        await self.role_permission_dal.delete_role_permission(data)

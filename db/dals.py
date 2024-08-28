@@ -1,17 +1,17 @@
 from datetime import datetime
 from logging import getLogger
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 from fastapi import HTTPException, status
 from schemas import (
-    AdminUserUpdate, 
+    AdminUserUpdate,
     PermissionCreate,
     PermissionUpdate,
     RoleCreate,
     RolePermissionData,
     RoleUpdate,
-    UserCreate, 
-    UserUpdate
+    UserCreate,
+    UserUpdate,
 )
 from sqlalchemy import and_, asc, desc, func, select
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
@@ -32,6 +32,7 @@ ALLOWED_SORT_FIELDS = [
 ALLOWED_FILTER_FIELDS = [
     'role_id',
 ]
+
 
 class UserDAL:
     """Data Access Layer for operating user info"""
@@ -243,49 +244,23 @@ class PermissionDAL:
 
     async def create_permission(self, permission_data: PermissionCreate) -> Permission:
         async with self.db_session.begin():
-            try:
-                db_permission = Permission(**permission_data.dict())
-                self.db_session.add(db_permission)
-                await self.db_session.flush()
-                await self.db_session.refresh(db_permission)
-                return db_permission
-            except SQLAlchemyError as err:
-                logger.error("Error during permission creation: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create a permission.",
-                )
+            db_permission = Permission(**permission_data.dict())
+            self.db_session.add(db_permission)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_permission)
+            return db_permission
 
     async def get_permissions(self) -> Sequence[Permission]:
         query = select(Permission)
-        try:
-            result = await self.db_session.execute(query)
-            permissions = result.scalars().all()
-            return permissions
-        except SQLAlchemyError as err:
-            logger.error("Error during getting all permissions: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get all permissions",
-            )
+        result = await self.db_session.execute(query)
+        permissions = result.scalars().all()
+        return permissions
 
     async def get_permission_by_pk(self, permission_pk: int) -> Permission:
         query = select(Permission).where(Permission.permission_pk == permission_pk)
-        try:
-            result = await self.db_session.execute(query)
-            permission = result.scalar_one()
-            return permission
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Permission with pk {permission_pk} not found.",
-            )
-        except SQLAlchemyError as err:
-            logger.error("Error during getting permission by pk: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get permission by pk",
-            )
+        result = await self.db_session.execute(query)
+        permission = result.scalar_one()
+        return permission
 
     async def update_permission(
         self, permission_pk: int, permission_data: PermissionUpdate
@@ -293,32 +268,17 @@ class PermissionDAL:
         async with self.db_session.begin():
             db_permission = await self.get_permission_by_pk(permission_pk)
             update_data = permission_data.dict(exclude_unset=True)
-            try:
-                for key, value in update_data.items():
-                    setattr(db_permission, key, value)
-                await self.db_session.flush()
-                await self.db_session.refresh(db_permission)
-                return db_permission
-            except SQLAlchemyError as err:
-                logger.error("Error during updating permission: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to update permission with pk {permission_pk}",
-                )
+            for key, value in update_data.items():
+                setattr(db_permission, key, value)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_permission)
+            return db_permission
 
-    async def delete_permission(self, permission_pk: int) -> Permission:
+    async def delete_permission(self, permission_pk: int):
         async with self.db_session.begin():
             db_permission = await self.get_permission_by_pk(permission_pk)
-            try:
-                await self.db_session.delete(db_permission)
-                await self.db_session.flush()
-                return db_permission
-            except SQLAlchemyError as err:
-                logger.error("Error during deleting permission: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to delete permission with pk {permission_pk}",
-                )
+            await self.db_session.delete(db_permission)
+            await self.db_session.flush()
 
 
 class RoleDAL:
@@ -329,98 +289,39 @@ class RoleDAL:
 
     async def create_role(self, role_data: RoleCreate) -> Role:
         async with self.db_session.begin():
-            try:
-                db_role = Role(**role_data.dict())
-                self.db_session.add(db_role)
-                await self.db_session.flush()
-                await self.db_session.refresh(db_role)
-                return db_role
-            except SQLAlchemyError as err:
-                logger.error("Error during role creation: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create a role.",
-                )
+            db_role = Role(**role_data.dict())
+            self.db_session.add(db_role)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_role)
+            return db_role
 
     async def get_roles(self) -> Sequence[Role]:
         query = select(Role)
-        try:
-            result = await self.db_session.execute(query)
-            roles = result.scalars().all()
-            return roles
-        except SQLAlchemyError as err:
-            logger.error("Error during getting all roles: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get all roles",
-            )
+        result = await self.db_session.execute(query)
+        roles = result.scalars().all()
+        return roles
 
     async def get_role_by_pk(self, role_pk: int) -> Role:
         query = select(Role).where(Role.role_pk == role_pk)
-        try:
-            result = await self.db_session.execute(query)
-            role = result.scalar_one()
-            return role
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Role with pk {role_pk} not found.",
-            )
-        except SQLAlchemyError as err:
-            logger.error("Error during getting role by pk: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get role by pk",
-            )
+        result = await self.db_session.execute(query)
+        role = result.scalar_one()
+        return role
 
     async def update_role(self, role_pk: int, role_data: RoleUpdate) -> Role:
         async with self.db_session.begin():
             db_role = await self.get_role_by_pk(role_pk)
             update_data = role_data.dict(exclude_unset=True)
-            try:
-                for key, value in update_data.items():
-                    setattr(db_role, key, value)
-                await self.db_session.flush()
-                await self.db_session.refresh(db_role)
-                return db_role
-            except SQLAlchemyError as err:
-                logger.error("Error during updating role: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to update role with pk {role_pk}",
-                )
+            for key, value in update_data.items():
+                setattr(db_role, key, value)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_role)
+            return db_role
 
-    async def delete_role(self, role_pk: int) -> Role:
+    async def delete_role(self, role_pk: int):
         async with self.db_session.begin():
             db_role = await self.get_role_by_pk(role_pk)
-            try:
-                await self.db_session.delete(db_role)
-                await self.db_session.flush()
-                return db_role
-            except SQLAlchemyError as err:
-                logger.error("Error during deleting role: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to delete role with pk {role_pk}",
-                )
-
-    async def get_role_pk_by_name(self, role_name: str) -> int:
-        query = select(Role.role_pk).where(Role.name == role_name)
-        try:
-            result = await self.db_session.execute(query)
-            role_pk = result.scalar_one()
-            return role_pk
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Role with name '{role_name}' not found.",
-            )
-        except SQLAlchemyError as err:
-            logger.error("Error during getting role_pk from name: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get role_pk from name",
-            )
+            await self.db_session.delete(db_role)
+            await self.db_session.flush()
 
 
 class RolePermissionDAL:
@@ -431,39 +332,15 @@ class RolePermissionDAL:
 
     async def _get_role_by_name(self, role_name: str) -> Role:
         query = select(Role).where(Role.name == role_name)
-        try:
-            result = await self.db_session.execute(query)
-            role = result.scalar_one()
-            return role
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Role with name {role_name} not found.",
-            )
-        except SQLAlchemyError as err:
-            logger.error("Error during getting role by name: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get role by name",
-            )
+        result = await self.db_session.execute(query)
+        role = result.scalar_one()
+        return role
 
     async def _get_permission_by_name(self, permission_name: str) -> Permission:
         query = select(Permission).where(Permission.name == permission_name)
-        try:
-            result = await self.db_session.execute(query)
-            permission = result.scalar_one()
-            return permission
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Permission with name {permission_name} not found.",
-            )
-        except SQLAlchemyError as err:
-            logger.error("Error during getting permission by name: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get permission by name",
-            )
+        result = await self.db_session.execute(query)
+        permission = result.scalar_one()
+        return permission
 
     async def _get_role_permission(
         self, role_pk: int, permission_pk: int
@@ -474,43 +351,21 @@ class RolePermissionDAL:
                 RolePermission.permission_pk == permission_pk,
             )
         )
-        try:
-            result = await self.db_session.execute(query)
-            role_permission = result.scalar_one()
-            return role_permission
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Role with pk {role_pk} doesn't have permission with pk {permission_pk}.",
-            )
-        except SQLAlchemyError as err:
-            logger.error(
-                f"Error during getting role-permission pair with pks {role_pk}-{permission_pk}: %s",
-                str(err),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get a role-permission pair.",
-            )
+        result = await self.db_session.execute(query)
+        role_permission = result.scalar_one()
+        return role_permission
 
     async def create_role_permission(self, data: RolePermissionData) -> RolePermission:
         async with self.db_session.begin():
             role = await self._get_role_by_name(data.role)
             permission = await self._get_permission_by_name(data.permission)
-            try:
-                db_role_permission = RolePermission(
-                    permission_pk=permission.permission_pk, role_pk=role.role_pk
-                )
-                self.db_session.add(db_role_permission)
-                await self.db_session.flush()
-                await self.db_session.refresh(db_role_permission)
-                return db_role_permission
-            except SQLAlchemyError as err:
-                logger.error("Error during role permission creation: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create a role permission.",
-                )
+            db_role_permission = RolePermission(
+                permission_pk=permission.permission_pk, role_pk=role.role_pk
+            )
+            self.db_session.add(db_role_permission)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_role_permission)
+            return db_role_permission
 
     async def get_role_with_permissions(self, role_pk: int) -> Role:
         query = (
@@ -519,21 +374,9 @@ class RolePermissionDAL:
             .where(Role.role_pk == role_pk)
         )
         async with self.db_session.begin():
-            try:
-                result = await self.db_session.execute(query)
-                role = result.scalar_one()
-                return role
-            except NoResultFound:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Role with pk {role_pk} not found.",
-                )
-            except SQLAlchemyError as err:
-                logger.error("Error during getting role with permissions: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to get a role with permissions.",
-                )
+            result = await self.db_session.execute(query)
+            role = result.scalar_one()
+            return role
 
     async def get_permission_with_roles(self, permission_pk: int) -> Permission:
         query = (
@@ -542,39 +385,16 @@ class RolePermissionDAL:
             .where(Permission.permission_pk == permission_pk)
         )
         async with self.db_session.begin():
-            try:
-                result = await self.db_session.execute(query)
-                permission = result.scalar_one()
-                return permission
-            except NoResultFound:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Permission with pk {permission_pk} not found.",
-                )
-            except SQLAlchemyError as err:
-                logger.error("Error during getting permission with roles: %s", str(err))
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to get a permission with roles.",
-                )
+            result = await self.db_session.execute(query)
+            permission = result.scalar_one()
+            return permission
 
-    async def delete_role_permission(self, data: RolePermissionData) -> RolePermission:
+    async def delete_role_permission(self, data: RolePermissionData):
         async with self.db_session.begin():
             role = await self._get_role_by_name(data.role)
             permission = await self._get_permission_by_name(data.permission)
             db_role_permission = await self._get_role_permission(
                 role_pk=role.role_pk, permission_pk=permission.permission_pk
             )
-            try:
-                await self.db_session.delete(db_role_permission)
-                await self.db_session.flush()
-                return db_role_permission
-            except SQLAlchemyError as err:
-                logger.error(
-                    f"Error during deleting role-permission pair {data.role}-{data.permission}: %s",
-                    str(err),
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to delete a role-permission pair.",
-                )
+            await self.db_session.delete(db_role_permission)
+            await self.db_session.flush()

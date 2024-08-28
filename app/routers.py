@@ -12,7 +12,7 @@ from fastapi import (
     Query,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from schemas import (
     AdminUserUpdate,
@@ -70,29 +70,19 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
     status_code=status.HTTP_200_OK,
 )
 async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
-    users_with_emails = {}
     service = UserService(db)
     users = await service.get_users_with_emails(body.ids)
-
-    if not users:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Users not found"
-        )
-
-    for user_row in users:
-        users_with_emails[user_row[0].user_pk] = user_row[0].email
-
-    return {"users": users_with_emails}
+    return users
 
 
-@user_router.post("/register", response_model=UserOut)
+@user_router.post("/register", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def create_user(
     background_tasks: BackgroundTasks,
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
 ):
     user_service = UserService(db)
-    await user_service.create_user(body)
+    user = await user_service.create_user(body)
     email_registration_confirmation_service = EmailTokenService(
         subject="Confirm Registration Instructions",
         action="confirm your email",
@@ -104,15 +94,10 @@ async def create_user(
         email_registration_confirmation_service.send_email_with_link
     )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "Registration confirmation instructions have been sent to your email."
-        },
-    )
+    return user
 
 
-@user_router.get("/", response_model=PaginatedResponse)
+@user_router.get("/", response_model=PaginatedResponse, status_code=status.HTTP_200_OK)
 async def read_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1),
@@ -127,16 +112,16 @@ async def read_users(
     )
 
 
-@user_router.get("/{user_pk}", response_model=UserOut)
+@user_router.get("/{user_pk}", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def read_user(
     db: AsyncSession = Depends(get_db),
-    user_pk: str = Path(...),
+    user_pk: int = Path(...),
 ):
     user_service = UserService(db)
-    return await user_service.read_user(int(user_pk))
+    return await user_service.read_user(user_pk)
 
 
-@user_router.put("/my_profile", response_model=UserOut)
+@user_router.put("/my_profile", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def update_user(
     user_data: UserUpdate,
     token: str = Depends(oauth2_scheme),
@@ -152,10 +137,11 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
 ):
     user_service = UserService(db)
-    return await user_service.delete_user(token)
+    await user_service.delete_user(token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@admin_router.get("/", response_model=PaginatedResponse)
+@admin_router.get("/", response_model=PaginatedResponse, status_code=status.HTTP_200_OK)
 async def admin_read_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1),
@@ -171,35 +157,40 @@ async def admin_read_users(
     )
 
 
-@admin_router.get("/{user_pk}", response_model=ExpandUserData)
+@admin_router.get(
+    "/{user_pk}", response_model=ExpandUserData, status_code=status.HTTP_200_OK
+)
 async def admin_read_user(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    user_pk: str = Path(...),
+    user_pk: int = Path(...),
 ):
     user_service = AdminUserService(db)
-    return await user_service.admin_read_user(int(user_pk))
+    return await user_service.admin_read_user(user_pk)
 
 
-@admin_router.put("/{user_pk}", response_model=ExpandUserData)
+@admin_router.put(
+    "/{user_pk}", response_model=ExpandUserData, status_code=status.HTTP_200_OK
+)
 async def admin_update_user(
     user_data: AdminUserUpdate,
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    user_pk: str = Path(...),
+    user_pk: int = Path(...),
 ):
     user_service = AdminUserService(db)
-    return await user_service.admin_update_user(int(user_pk), user_data)
+    return await user_service.admin_update_user(user_pk, user_data)
 
 
-@admin_router.delete("/{user_pk}", response_model=ExpandUserData)
+@admin_router.delete("/{user_pk}")
 async def admin_delete_user(
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_db),
-    user_pk: str = Path(...),
+    user_pk: int = Path(...),
 ):
     user_service = AdminUserService(db)
-    return await user_service.admin_delete_user(int(user_pk))
+    await user_service.admin_delete_user(user_pk)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @user_router.post("/resend-confirmation-link")
@@ -217,12 +208,7 @@ async def send_new_confirmation_link(
         email_registration_confirmation_service.send_email_with_link
     )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "Registration confirmation instructions have been sent to your email."
-        },
-    )
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @user_router.get("/confirm-registration/{secret_token}")
@@ -231,11 +217,7 @@ async def confirm_email(
     secret_token: str = Path(...),
 ):
     await ConfirmRegistrationService.confirm_registration(db, secret_token)
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={"message": "Registration has been successfully confirmed!"},
-    )
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)

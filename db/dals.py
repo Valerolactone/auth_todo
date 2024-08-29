@@ -2,7 +2,6 @@ from datetime import datetime
 from logging import getLogger
 from typing import Optional, Sequence
 
-from fastapi import HTTPException, status
 from schemas import (
     AdminUserUpdate,
     PermissionCreate,
@@ -14,7 +13,6 @@ from schemas import (
     UserUpdate,
 )
 from sqlalchemy import and_, asc, desc, func, select
-from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 

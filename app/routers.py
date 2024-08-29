@@ -140,7 +140,6 @@ async def admin_delete_user(
         )
 
 
-
 @user_router.post(
     "/notification_emails",
     response_model=UsersWithEmails,
@@ -376,9 +375,7 @@ async def reset_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         )
-    except ValueError as err:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
-    except PasswordsError as err:
+    except (ValueError, PasswordsError) as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 

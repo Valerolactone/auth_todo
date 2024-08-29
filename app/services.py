@@ -4,10 +4,8 @@ from typing import Optional, Sequence
 
 import jwt
 from exceptions import AuthenticationError, PasswordsError
-from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas import (
@@ -32,7 +30,7 @@ from app.schemas import (
     UserUpdate,
 )
 from db.dals import PermissionDAL, RoleDAL, RolePermissionDAL, TokenDAL, UserDAL
-from db.models import Permission, RefreshToken, Role, User
+from db.models import User
 
 
 class UserService:

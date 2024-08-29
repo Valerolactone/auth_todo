@@ -3,11 +3,20 @@ from logging import getLogger
 from typing import Optional, Sequence
 
 from fastapi import HTTPException, status
-from schemas import AdminUserUpdate, UserCreate, UserUpdate
+from schemas import (
+    AdminUserUpdate,
+    PermissionCreate,
+    PermissionUpdate,
+    RoleCreate,
+    RolePermissionData,
+    RoleUpdate,
+    UserCreate,
+    UserUpdate,
+)
 from sqlalchemy import and_, asc, desc, func, select
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from db.models import Permission, RefreshToken, Role, RolePermission, User
 
@@ -19,6 +28,7 @@ ALLOWED_SORT_FIELDS = [
     'role_id',
     'first_name',
 ]
+
 ALLOWED_FILTER_FIELDS = [
     'role_id',
 ]
@@ -183,21 +193,43 @@ class PermissionDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def get_permissions(self) -> Sequence[Permission] | None:
+    async def create_permission(self, permission_data: PermissionCreate) -> Permission:
+        async with self.db_session.begin():
+            db_permission = Permission(**permission_data.dict())
+            self.db_session.add(db_permission)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_permission)
+            return db_permission
+
+    async def get_permissions(self) -> Sequence[Permission]:
         query = select(Permission)
         result = await self.db_session.execute(query)
         permissions = result.scalars().all()
-        if permissions is None:
-            return
         return permissions
 
-    async def get_permission_by_pk(self, permission_pk: int) -> Permission | None:
+    async def get_permission_by_pk(self, permission_pk: int) -> Permission:
         query = select(Permission).where(Permission.permission_pk == permission_pk)
         result = await self.db_session.execute(query)
-        permission_row = result.scalar_one_or_none()
-        if permission_row is None:
-            return
-        return permission_row
+        permission = result.scalar_one()
+        return permission
+
+    async def update_permission(
+        self, permission_pk: int, permission_data: PermissionUpdate
+    ) -> Permission:
+        async with self.db_session.begin():
+            db_permission = await self.get_permission_by_pk(permission_pk)
+            update_data = permission_data.dict(exclude_unset=True)
+            for key, value in update_data.items():
+                setattr(db_permission, key, value)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_permission)
+            return db_permission
+
+    async def delete_permission(self, permission_pk: int):
+        async with self.db_session.begin():
+            db_permission = await self.get_permission_by_pk(permission_pk)
+            await self.db_session.delete(db_permission)
+            await self.db_session.flush()
 
 
 class RoleDAL:
@@ -206,39 +238,41 @@ class RoleDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def get_roles(self) -> Sequence[Role] | None:
+    async def create_role(self, role_data: RoleCreate) -> Role:
+        async with self.db_session.begin():
+            db_role = Role(**role_data.dict())
+            self.db_session.add(db_role)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_role)
+            return db_role
+
+    async def get_roles(self) -> Sequence[Role]:
         query = select(Role)
         result = await self.db_session.execute(query)
         roles = result.scalars().all()
-        if roles is None:
-            return
         return roles
 
-    async def get_role_by_pk(self, role_pk: int) -> Role | None:
+    async def get_role_by_pk(self, role_pk: int) -> Role:
         query = select(Role).where(Role.role_pk == role_pk)
         result = await self.db_session.execute(query)
-        role_row = result.scalar_one_or_none()
-        if role_row is None:
-            return
-        return role_row
+        role = result.scalar_one()
+        return role
 
-    async def get_role_pk_by_name(self, role_name: str) -> int:
-        query = select(Role.role_pk).where(Role.name == role_name)
-        try:
-            result = await self.db_session.execute(query)
-            role_pk = result.scalar_one()
-            return role_pk
-        except NoResultFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Role with name '{role_name}' not found.",
-            )
-        except SQLAlchemyError as err:
-            logger.error("Error during getting role_pk from name: %s", str(err))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get role_pk from name",
-            )
+    async def update_role(self, role_pk: int, role_data: RoleUpdate) -> Role:
+        async with self.db_session.begin():
+            db_role = await self.get_role_by_pk(role_pk)
+            update_data = role_data.dict(exclude_unset=True)
+            for key, value in update_data.items():
+                setattr(db_role, key, value)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_role)
+            return db_role
+
+    async def delete_role(self, role_pk: int):
+        async with self.db_session.begin():
+            db_role = await self.get_role_by_pk(role_pk)
+            await self.db_session.delete(db_role)
+            await self.db_session.flush()
 
 
 class RolePermissionDAL:
@@ -247,9 +281,21 @@ class RolePermissionDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def get_role_permission(
+    async def _get_role_by_name(self, role_name: str) -> Role:
+        query = select(Role).where(Role.name == role_name)
+        result = await self.db_session.execute(query)
+        role = result.scalar_one()
+        return role
+
+    async def _get_permission_by_name(self, permission_name: str) -> Permission:
+        query = select(Permission).where(Permission.name == permission_name)
+        result = await self.db_session.execute(query)
+        permission = result.scalar_one()
+        return permission
+
+    async def _get_role_permission(
         self, role_pk: int, permission_pk: int
-    ) -> RolePermission | None:
+    ) -> RolePermission:
         query = select(RolePermission).where(
             and_(
                 RolePermission.role_pk == role_pk,
@@ -257,7 +303,49 @@ class RolePermissionDAL:
             )
         )
         result = await self.db_session.execute(query)
-        role_permission_row = result.scalar_one_or_none()
-        if role_permission_row is None:
-            return
-        return role_permission_row
+        role_permission = result.scalar_one()
+        return role_permission
+
+    async def create_role_permission(self, data: RolePermissionData) -> RolePermission:
+        async with self.db_session.begin():
+            role = await self._get_role_by_name(data.role)
+            permission = await self._get_permission_by_name(data.permission)
+            db_role_permission = RolePermission(
+                permission_pk=permission.permission_pk, role_pk=role.role_pk
+            )
+            self.db_session.add(db_role_permission)
+            await self.db_session.flush()
+            await self.db_session.refresh(db_role_permission)
+            return db_role_permission
+
+    async def get_role_with_permissions(self, role_pk: int) -> Role:
+        query = (
+            select(Role)
+            .options(selectinload(Role.permissions))
+            .where(Role.role_pk == role_pk)
+        )
+        async with self.db_session.begin():
+            result = await self.db_session.execute(query)
+            role = result.scalar_one()
+            return role
+
+    async def get_permission_with_roles(self, permission_pk: int) -> Permission:
+        query = (
+            select(Permission)
+            .options(selectinload(Permission.roles))
+            .where(Permission.permission_pk == permission_pk)
+        )
+        async with self.db_session.begin():
+            result = await self.db_session.execute(query)
+            permission = result.scalar_one()
+            return permission
+
+    async def delete_role_permission(self, data: RolePermissionData):
+        async with self.db_session.begin():
+            role = await self._get_role_by_name(data.role)
+            permission = await self._get_permission_by_name(data.permission)
+            db_role_permission = await self._get_role_permission(
+                role_pk=role.role_pk, permission_pk=permission.permission_pk
+            )
+            await self.db_session.delete(db_role_permission)
+            await self.db_session.flush()

@@ -36,7 +36,7 @@ from schemas import (
     UsersWithEmails,
     UserUpdate,
 )
-from sqlalchemy.exc import NoResultFound, SQLAlchemyError
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import (
@@ -83,12 +83,6 @@ async def admin_read_users(
         )
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
-    except SQLAlchemyError as err:
-        logger.error("Error during fetching users: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch users",
-        )
 
 
 @admin_router.get(
@@ -106,12 +100,6 @@ async def admin_read_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with pk {user_pk} not found.",
-        )
-    except SQLAlchemyError as err:
-        logger.error("Error during getting user by pk: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get user by pk",
         )
 
 
@@ -132,12 +120,6 @@ async def admin_update_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with pk {user_pk} not found.",
         )
-    except SQLAlchemyError as err:
-        logger.error("Error during getting user by pk: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get user by pk",
-        )
 
 
 @admin_router.delete("/{user_pk}")
@@ -155,12 +137,6 @@ async def admin_delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with pk {user_pk} not found.",
         )
-    except SQLAlchemyError as err:
-        logger.error("Error during getting user by pk: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get user by pk",
-        )
 
 
 @user_router.post(
@@ -169,16 +145,9 @@ async def admin_delete_user(
     status_code=status.HTTP_200_OK,
 )
 async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
-    try:
-        service = UserService(db)
-        users = await service.get_users_with_emails(body.ids)
-        return users
-    except SQLAlchemyError as err:
-        logger.error("Error during getting list of users by pks: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get list of users by pks",
-        )
+    service = UserService(db)
+    users = await service.get_users_with_emails(body.ids)
+    return users
 
 
 @user_router.post("/register", response_model=UserOut, status_code=status.HTTP_200_OK)
@@ -203,12 +172,6 @@ async def create_user(
         return user
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
-    except SQLAlchemyError as err:
-        logger.error("Error during user creation: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create a user.",
-        )
 
 
 @user_router.get("/", response_model=PaginatedResponse, status_code=status.HTTP_200_OK)
@@ -227,12 +190,6 @@ async def read_users(
         )
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
-    except SQLAlchemyError as err:
-        logger.error("Error during fetching users: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch users",
-        )
 
 
 @user_router.get("/{user_pk}", response_model=UserOut, status_code=status.HTTP_200_OK)
@@ -247,12 +204,6 @@ async def read_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with pk {user_pk} not found.",
-        )
-    except SQLAlchemyError as err:
-        logger.error("Error during getting user by pk: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get user by pk",
         )
 
 
@@ -275,12 +226,6 @@ async def update_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
         )
-    except SQLAlchemyError as err:
-        logger.error("Error during updating user: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update user",
-        )
 
 
 @user_router.delete("/my_profile", response_model=UserOut)
@@ -301,12 +246,6 @@ async def delete_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
-    except SQLAlchemyError as err:
-        logger.error("Error during deleting user: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete user",
         )
 
 
@@ -353,12 +292,6 @@ async def confirm_email(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with not found.",
         )
-    except SQLAlchemyError as err:
-        logger.error("Error during verifying user: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to verify user",
-        )
 
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
@@ -372,12 +305,6 @@ async def login(
         return token_data.update(refresh_token)
     except AuthenticationError as err:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
-    except SQLAlchemyError as err:
-        logger.error("Error during authentication user: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to authenticate user",
-        )
 
 
 @login_router.post(
@@ -400,12 +327,6 @@ async def refresh_access_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
-        )
-    except SQLAlchemyError as err:
-        logger.error("Error during updating access token user: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update access token user",
         )
 
 
@@ -457,12 +378,6 @@ async def reset_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
     except PasswordsError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
-    except SQLAlchemyError as err:
-        logger.error("Error during reseting user password: %s", str(err))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to reset user password",
-        )
 
 
 @permission_router.post(

@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
 import jwt
-from fastapi import HTTPException, status
+from exceptions import AuthenticationError, PasswordsError
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas import (
@@ -23,13 +23,14 @@ from app.schemas import (
     RolePermissionOut,
     RoleUpdate,
     RoleWithPermissionOut,
+    Token,
     UserCreate,
     UserOut,
     UsersWithEmails,
     UserUpdate,
 )
 from db.dals import PermissionDAL, RoleDAL, RolePermissionDAL, TokenDAL, UserDAL
-from db.models import RefreshToken, User
+from db.models import User
 
 
 class UserService:
@@ -46,10 +47,7 @@ class UserService:
     async def create_user(self, user_data: UserCreate) -> UserOut:
         email_check = await self.user_dal.get_user_by_email(user_data.email)
         if email_check:
-            raise HTTPException(
-                detail='Email is already registered',
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValueError('Email is already registered')
 
         user = await self.user_dal.create_user(user_data)
         return UserOut(
@@ -68,42 +66,37 @@ class UserService:
         sort_order: str = 'asc',
         filter_by: Optional[str] = None,
     ) -> PaginatedResponse | None:
-        try:
-            total_users = await self.user_dal.count_users(filter_by=filter_by)
-            users = await self.user_dal.fetch_users(
-                page, page_size, sort_by, sort_order, filter_by
+        total_users = await self.user_dal.count_users(filter_by=filter_by)
+        users = await self.user_dal.fetch_users(
+            page, page_size, sort_by, sort_order, filter_by
+        )
+        mapped_users = [
+            UserOut(
+                user_pk=user.user_pk,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                role=user.role.name,
             )
-            mapped_users = [
-                UserOut(
-                    user_pk=user.user_pk,
-                    first_name=user.first_name,
-                    last_name=user.last_name,
-                    email=user.email,
-                    role=user.role.name,
-                )
-                for user in users
-            ]
+            for user in users
+        ]
 
-            total_pages = (
-                total_users // page_size
-                if total_users % page_size == 0
-                else total_users // page_size + 1
-            )
-            has_next = page < total_pages
-            has_prev = page > 1
-            return PaginatedResponse(
-                users=mapped_users,
-                total=total_users,
-                page=page,
-                page_size=page_size,
-                total_pages=total_pages,
-                has_next=has_next,
-                has_prev=has_prev,
-            )
-        except ValueError as err:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
-            )
+        total_pages = (
+            total_users // page_size
+            if total_users % page_size == 0
+            else total_users // page_size + 1
+        )
+        has_next = page < total_pages
+        has_prev = page > 1
+        return PaginatedResponse(
+            users=mapped_users,
+            total=total_users,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_prev=has_prev,
+        )
 
     async def read_user(self, user_pk: int) -> UserOut:
         user = await self.user_dal.get_user_by_pk(user_pk)
@@ -128,7 +121,13 @@ class UserService:
 
     async def delete_user(self, token: str):
         db_user = self.auth_service.get_user_from_token(token)
-        return await self.user_dal.delete_user(db_user.user_pk)
+        await self.user_dal.delete_user(db_user.user_pk)
+
+    async def verify_user(self, user_pk: int):
+        await self.user_dal.verify_user(user_pk)
+
+    async def reset_password(self, user_pk: int, new_password: str):
+        await self.user_dal.reset_password(user_pk, new_password)
 
 
 class AdminUserService:
@@ -143,47 +142,42 @@ class AdminUserService:
         sort_order: str = 'asc',
         filter_by: Optional[str] = None,
     ) -> PaginatedResponse:
-        try:
-            total_users = await self.user_dal.count_users(filter_by=filter_by)
-            users = await self.user_dal.fetch_users(
-                page, page_size, sort_by, sort_order, filter_by
+        total_users = await self.user_dal.count_users(filter_by=filter_by)
+        users = await self.user_dal.fetch_users(
+            page, page_size, sort_by, sort_order, filter_by
+        )
+        total_pages = (
+            total_users // page_size
+            if total_users % page_size == 0
+            else total_users // page_size + 1
+        )
+        mapped_users = [
+            ExpandUserData(
+                user_pk=user.user_pk,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                role=user.role.name,
+                role_id=user.role_id,
+                created_at=user.created_at,
+                deleted_at=user.deleted_at,
+                is_active=user.is_active,
+                is_verified=user.is_verified,
             )
-            total_pages = (
-                total_users // page_size
-                if total_users % page_size == 0
-                else total_users // page_size + 1
-            )
-            mapped_users = [
-                ExpandUserData(
-                    user_pk=user.user_pk,
-                    first_name=user.first_name,
-                    last_name=user.last_name,
-                    email=user.email,
-                    role=user.role.name,
-                    role_id=user.role_id,
-                    created_at=user.created_at,
-                    deleted_at=user.deleted_at,
-                    is_active=user.is_active,
-                    is_verified=user.is_verified,
-                )
-                for user in users
-            ]
-            has_next = page < total_pages
-            has_prev = page > 1
+            for user in users
+        ]
+        has_next = page < total_pages
+        has_prev = page > 1
 
-            return PaginatedResponse(
-                users=mapped_users,
-                total=total_users,
-                page=page,
-                page_size=page_size,
-                total_pages=total_pages,
-                has_next=has_next,
-                has_prev=has_prev,
-            )
-        except ValueError as err:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
-            )
+        return PaginatedResponse(
+            users=mapped_users,
+            total=total_users,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_prev=has_prev,
+        )
 
     async def admin_read_user(self, user_pk: int) -> ExpandUserData:
         user = await self.user_dal.get_user_by_pk(user_pk)
@@ -218,7 +212,7 @@ class AdminUserService:
         )
 
     async def admin_delete_user(self, user_pk: int):
-        return await self.user_dal.delete_user(user_pk)
+        await self.user_dal.delete_user(user_pk)
 
 
 class AuthenticationService:
@@ -226,47 +220,56 @@ class AuthenticationService:
         self.db_session = db_session
         self.user_dal = UserDAL(self.db_session)
 
-    @property
-    def _credentials_exception(self):
-        return HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-        )
-
-    async def get_user_by_email(self, email: str) -> User | None:
-        async with self.db_session.begin():
-            return await self.user_dal.get_user_by_email(email=email)
-
-    async def authenticate_user(self, email: str, password: str) -> User | None:
-        user = await self.get_user_by_email(email=email)
-        if user is None or not user.verify_password(password):
-            return None
+    async def get_user_by_email(self, email: str) -> User:
+        user = await self.user_dal.get_user_by_email(email=email)
+        if user is None:
+            raise ValueError(f'User with the email {email} not found')
         return user
 
-    async def get_user_from_token(self, token: str) -> User | None:
-        try:
-            payload = jwt.decode(
-                token,
-                os.getenv("JWT_SECRET_KEY"),
-                algorithms=os.getenv("JWT_ALGORITHM"),
-            )
-            user_pk: str = payload.get("user_pk")
-            if user_pk is None:
-                raise self._credentials_exception
-        except jwt.PyJWTError:
-            raise self._credentials_exception
-        user_dal = UserDAL(self.db_session)
+    async def authenticate_user(self, email: str, password: str) -> User:
+        user = await self.get_user_by_email(email=email)
+        if not user.verify_password(password):
+            raise AuthenticationError("Incorrect username or password")
+        return user
 
-        return await user_dal.get_user_by_pk(user_pk=user_pk)
+    async def get_user_from_token(self, token: str) -> User:
+        payload = jwt.decode(
+            token,
+            os.getenv("JWT_SECRET_KEY"),
+            algorithms=os.getenv("JWT_ALGORITHM"),
+        )
+        user_pk: str = payload.get("user_pk")
+        return await self.user_dal.get_user_by_pk(user_pk=user_pk)
 
 
 class TokenService:
-    def __init__(self, db_session: AsyncSession, data: dict):
-        self.db_session = db_session
-        self.data = data
+    def __init__(
+        self, db_session: AsyncSession, form_data: OAuth2PasswordRequestForm = None
+    ):
+        self.token_dal = TokenDAL(db_session)
+        self.auth_service = AuthenticationService(db_session)
+        self.user_dal = UserDAL(db_session)
+        if form_data:
+            self.form_data = form_data
 
-    def create_access_token(self, expires_delta: Optional[timedelta] = None) -> dict:
-        to_encode = self.data.copy()
+    async def _set_jwt_payload(self) -> dict:
+        user = await self.auth_service.authenticate_user(
+            self.form_data.username, self.form_data.password
+        )
+        return {
+            "sub": user.email,
+            "user_pk": user.user_pk,
+            "role": user.role.name,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        }
+
+    async def create_access_token(
+        self, user_data: dict = None, expires_delta: Optional[timedelta] = None
+    ) -> Token:
+        if user_data is None:
+            user_data = await self._set_jwt_payload()
+        to_encode = user_data.copy()
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
         else:
@@ -277,10 +280,50 @@ class TokenService:
         token = jwt.encode(
             to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
         )
-        return {"access_token": token, "access_token_expires_at": expire}
+        return Token(
+            access_token=token, access_token_expires_at=expire, token_type="Bearer"
+        )
 
-    def _create_refresh_token(self) -> dict:
-        to_encode = self.data.copy()
+    async def update_access_token(self, refresh_token: str) -> Token:
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                os.getenv("JWT_SECRET_KEY"),
+                algorithms=[os.getenv("JWT_ALGORITHM")],
+            )
+            user_pk = payload.get("user_pk")
+            user = await self.user_dal.get_user_by_pk(user_pk=user_pk)
+            user_data = {
+                "sub": user.email,
+                "user_pk": user.user_pk,
+                "role": user.role.name,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+            stored_refresh_token = self.token_dal.get_refresh_token(refresh_token)
+            return await self.create_access_token(user_data)
+        except jwt.ExpiredSignatureError:
+            stored_refresh_token = await self.token_dal.get_refresh_token(refresh_token)
+            user = await self.user_dal.get_user_by_pk(
+                user_pk=stored_refresh_token.user_pk
+            )
+            user_data = {
+                "sub": user.email,
+                "user_pk": user.user_pk,
+                "role": user.role.name,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            }
+            new_refresh_token = await self.update_refresh_token_in_db(
+                old_refresh_token=stored_refresh_token.token, user_data=user_data
+            )
+            access_token = await self.create_access_token(user_data)
+            return Token(access_token=access_token, refresh_token=new_refresh_token)
+
+    async def _create_refresh_token(self, user_data: dict = None) -> dict:
+        if user_data is None:
+            user_data = await self._set_jwt_payload()
+        to_encode = user_data.copy()
         expire = datetime.utcnow() + timedelta(
             days=int(os.getenv("REFRESH_TOKEN_EXPIRATION_TIME"))
         )
@@ -288,51 +331,25 @@ class TokenService:
         token = jwt.encode(
             to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
         )
-        return {"refresh_token": token, "expires_at": expire}
+        return {
+            "user_pk": user_data["user_pk"],
+            "refresh_token": token,
+            "expires_at": expire,
+        }
 
-    async def add_refresh_token_to_db(self) -> str:
-        refresh_token_data = self._create_refresh_token()
-        refresh_token = refresh_token_data["refresh_token"]
-        expires_at = refresh_token_data["expires_at"]
-        db_refresh_token = RefreshToken(
-            user_pk=self.data["user_pk"], token=refresh_token, expires_at=expires_at
+    async def add_refresh_token_to_db(self) -> dict:
+        data = await self._create_refresh_token()
+        await self.token_dal.add_refresh_token(data=data)
+        return {"refresh_token": data["refresh_token"]}
+
+    async def update_refresh_token_in_db(
+        self, old_refresh_token: str, user_data: dict
+    ) -> str:
+        data = await self._create_refresh_token(user_data=user_data)
+        await self.token_dal.update_refresh_token(
+            old_refresh_token=old_refresh_token, data=data
         )
-        try:
-            self.db_session.add(db_refresh_token)
-            await self.db_session.flush()
-        except SQLAlchemyError as e:
-            await self.db_session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-            )
-
-        return refresh_token
-
-    async def update_refresh_token_in_db(self) -> str:
-        refresh_token_data = self._create_refresh_token()
-        refresh_token = refresh_token_data["refresh_token"]
-        expires_at = refresh_token_data["expires_at"]
-        token_dal = TokenDAL(self.db_session)
-        try:
-            db_refresh_token = await token_dal.get_refresh_token(self.data["user_pk"])
-            if not db_refresh_token:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Refresh token not found",
-                )
-
-            db_refresh_token.token = refresh_token
-            db_refresh_token.expires_at = expires_at
-
-            await self.db_session.flush()
-            await self.db_session.refresh(db_refresh_token)
-        except SQLAlchemyError as e:
-            await self.db_session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-            )
-
-        return refresh_token
+        return data["refresh_token"]
 
 
 class EmailTokenService:
@@ -380,16 +397,13 @@ class EmailTokenService:
 
     @classmethod
     def _decode_token_from_link(cls, token: str) -> str | None:
-        try:
-            payload = jwt.decode(
-                token,
-                os.getenv("JWT_FOR_LINK_SECRET_KEY"),
-                algorithms=[os.getenv("JWT_ALGORITHM")],
-            )
-            email: str = payload.get("sub")
-            return email
-        except jwt.PyJWTError:
-            return
+        payload = jwt.decode(
+            token,
+            os.getenv("JWT_FOR_LINK_SECRET_KEY"),
+            algorithms=[os.getenv("JWT_ALGORITHM")],
+        )
+        email: str = payload.get("sub")
+        return email
 
     async def send_email_with_link(self):
         message = MessageSchema(
@@ -402,6 +416,7 @@ class EmailTokenService:
         await self.email_agent.send_message(message)
 
 
+# TODO:
 class ResetPasswordService(EmailTokenService):
     @classmethod
     async def reset_password(
@@ -411,41 +426,18 @@ class ResetPasswordService(EmailTokenService):
         reset_forget_password: ResetForgetPassword,
     ):
         email = cls._decode_token_from_link(token=secret_token)
-        if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid password reset token or the reset link has expired.",
-            )
+        auth_service = AuthenticationService(db)
+        user = await auth_service.get_user_by_email(email)
 
         if reset_forget_password.new_password != reset_forget_password.confirm_password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password and password confirmation do not match.",
-            )
-
-        user_service = AuthenticationService(db)
-        user = await user_service.get_user_by_email(email)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
-            )
-
+            raise PasswordsError("New password and password confirmation do not match.")
         if user.verify_password(reset_forget_password.new_password):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="You have entered an old password.",
-            )
+            raise PasswordsError("You have entered an old password.")
 
-        user.password = reset_forget_password.new_password
-
-        try:
-            db.add(user)
-            await db.flush()
-        except SQLAlchemyError as err:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err)
-            )
+        user_service = UserService(db)
+        await user_service.reset_password(
+            user.user_pk, reset_forget_password.new_password
+        )
 
 
 class ConfirmRegistrationService(EmailTokenService):
@@ -456,27 +448,10 @@ class ConfirmRegistrationService(EmailTokenService):
         secret_token: str,
     ):
         email = cls._decode_token_from_link(token=secret_token)
-        if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid password reset token or the reset link has expired.",
-            )
-
-        user_service = AuthenticationService(db)
-        user = await user_service.get_user_by_email(email)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
-            )
-
-        user.is_verified = True
-
-        try:
-            db.add(user)
-            await db.flush()
-        except SQLAlchemyError as err:
-            await db.rollback()
-            raise HTTPException(status_code=500, detail=str(err))
+        auth_service = AuthenticationService(db)
+        user = await auth_service.get_user_by_email(email)
+        user_service = UserService(db)
+        await user_service.verify_user(user.user_pk)
 
 
 class PermissionService:

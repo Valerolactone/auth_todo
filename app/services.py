@@ -1,9 +1,9 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
 import jwt
-from exceptions import AuthenticationError, PasswordsError
+from app.exceptions import AuthenticationError, PasswordsError
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -271,9 +271,9 @@ class TokenService:
             user_data = await self._set_jwt_payload()
         to_encode = user_data.copy()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(
+            expire = datetime.now(timezone.utc) + timedelta(
                 minutes=int(os.getenv("ACCESS_TOKEN_EXPIRATION_TIME"))
             )
         to_encode.update({"exp": expire})
@@ -324,7 +324,7 @@ class TokenService:
         if user_data is None:
             user_data = await self._set_jwt_payload()
         to_encode = user_data.copy()
-        expire = datetime.utcnow() + timedelta(
+        expire = datetime.now(timezone.utc) + timedelta(
             days=int(os.getenv("REFRESH_TOKEN_EXPIRATION_TIME"))
         )
         to_encode.update({"exp": expire})
@@ -385,7 +385,7 @@ class EmailTokenService:
     def _create_token_for_link(self) -> str:
         data = {
             "sub": self.email,
-            "exp": datetime.utcnow()
+            "exp": datetime.now(timezone.utc)
             + timedelta(minutes=int(os.getenv("LINK_EXPIRE_MINUTES"))),
         }
         token = jwt.encode(

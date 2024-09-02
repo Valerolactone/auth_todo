@@ -45,9 +45,9 @@ class Role(Base):
     description = Column(Text, nullable=False)
 
     users = relationship('User', back_populates='role')
-    role_permissions = relationship("RolePermission", back_populates="role")
+    role_permissions = relationship("RolePermission", back_populates="role", overlaps="permissions,roles")
     permissions = relationship(
-        "Permission", secondary="role_permissions", back_populates="roles"
+        "Permission", secondary="role_permissions", back_populates="roles", overlaps="role_permissions,roles"
     )
 
 
@@ -58,9 +58,9 @@ class Permission(Base):
     name = Column(String, nullable=False, unique=True)
     description = Column(Text, nullable=False)
 
-    role_permissions = relationship("RolePermission", back_populates="permission")
+    role_permissions = relationship("RolePermission", back_populates="permission", overlaps="permissions,roles")
     roles = relationship(
-        "Role", secondary="role_permissions", back_populates="permissions"
+        "Role", secondary="role_permissions", back_populates="permissions", overlaps="role_permissions,permissions"
     )
 
 
@@ -77,8 +77,8 @@ class RolePermission(Base):
     )
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-    role = relationship("Role", back_populates="role_permissions")
-    permission = relationship("Permission", back_populates="role_permissions")
+    role = relationship("Role", back_populates="role_permissions", overlaps="permissions,roles")
+    permission = relationship("Permission", back_populates="role_permissions", overlaps="permissions,roles")
 
 
 class RefreshToken(Base):

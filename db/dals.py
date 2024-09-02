@@ -2,7 +2,7 @@ from datetime import datetime
 from logging import getLogger
 from typing import Optional, Sequence
 
-from schemas import (
+from app.schemas import (
     AdminUserUpdate,
     PermissionCreate,
     PermissionUpdate,

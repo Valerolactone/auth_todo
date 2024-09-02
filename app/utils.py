@@ -1,10 +1,10 @@
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from services import AuthenticationService
+from app.services import AuthenticationService
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import User
-from db.session import get_db
+from db.session import get_async_session
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
@@ -19,7 +19,7 @@ async def get_refresh_token_from_headers(authorization: str = Header(None)):
     )
 
 
-async def get_auth_service(db: AsyncSession = Depends(get_db)):
+async def get_auth_service(db: AsyncSession = Depends(get_async_session)):
     return AuthenticationService(db)
 
 

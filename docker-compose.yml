@@ -13,6 +13,16 @@ services:
     volumes:
       - pg_data_auth:/var/lib/postgresql/data
 
+  auth-test-db:
+    image: postgres:latest
+    container_name: auth_test_db
+    environment:
+      POSTGRES_DB: test_auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+
   todo_auth:
     build:
       context: .

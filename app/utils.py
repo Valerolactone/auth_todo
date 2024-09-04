@@ -1,8 +1,8 @@
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from app.services import AuthenticationService
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import AuthenticationService
 from db.models import User
 from db.session import get_async_session
 

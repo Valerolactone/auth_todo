@@ -1,8 +1,6 @@
 import os
 from typing import List, Optional
 
-from app import utils
-from app.exceptions import AuthenticationError, PasswordsError
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -15,6 +13,11 @@ from fastapi import (
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt import ExpiredSignatureError, PyJWTError
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import utils
+from app.exceptions import AuthenticationError, PasswordsError
 from app.schemas import (
     AdminUserUpdate,
     ExpandUserData,
@@ -38,9 +41,6 @@ from app.schemas import (
     UsersWithEmails,
     UserUpdate,
 )
-from sqlalchemy.exc import NoResultFound
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.services import (
     AdminUserService,
     AuthenticationService,
@@ -145,7 +145,9 @@ async def admin_delete_user(
     response_model=UsersWithEmails,
     status_code=status.HTTP_200_OK,
 )
-async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_async_session)):
+async def get_users_emails(
+    body: UserIds, db: AsyncSession = Depends(get_async_session)
+):
     service = UserService(db)
     users = await service.get_users_with_emails(body.ids)
     return users
@@ -297,13 +299,16 @@ async def confirm_email(
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_async_session)
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         token_service = TokenService(db_session=db, form_data=form_data)
         token_data = await token_service.create_access_token()
         refresh_token = await token_service.add_refresh_token_to_db()
-        return token_data.update(refresh_token)
+
+        token_data.update(refresh_token)
+        return token_data
     except AuthenticationError as err:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
 

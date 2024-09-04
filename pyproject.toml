@@ -13,7 +13,7 @@ sqlalchemy = "^2.0.31"
 psycopg2-binary = "^2.9.9"
 pytest = "^8.2.2"
 asyncpg = "^0.29.0"
-psycopg = {extras = ["binary"], version = "^3.2.1"}
+psycopg = { extras = ["binary"], version = "^3.2.1" }
 passlib = "^1.7.4"
 python-multipart = "^0.0.9"
 bcrypt = "^4.2.0"
@@ -35,9 +35,17 @@ pythonpath = [
     '.'
 ]
 asyncio_mode = "auto"
+env = [
+    "DB_NAME=test_auth_db",
+    "DB_HOST=localhost",
+    "DB_USER=postgres",
+    "DB_PORT=5434",
+    "DB_PASSWORD=postgres",
+    "DB_HOST=localhost",
+]
 
 [tool.isort]
-   profile = "black"
+profile = "black"
 
 [build-system]
 requires = ["poetry-core"]

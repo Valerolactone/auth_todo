@@ -25,6 +25,7 @@ ALLOWED_SORT_FIELDS = [
     'created_at',
     'role_id',
     'first_name',
+    'email',
 ]
 
 ALLOWED_FILTER_FIELDS = [

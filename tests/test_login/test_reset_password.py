@@ -60,23 +60,3 @@ async def test_reset_password_invalid_token(
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Invalid refresh token"
-
-
-# @patch('app.services.ResetPasswordService.reset_password')
-# async def test_reset_password_mismatch_passwords(mock_reset_password, async_session: AsyncSession,
-#                                                  async_client: AsyncClient):
-#     mock_reset_password.side_effect = PasswordsError("New password and password confirmation do not match.")
-#
-#     reset_data = {
-#         "new_password": "new_secure_password",
-#         "confirm_password": "different_password"
-#     }
-#
-#     response = await async_client.post(
-#         "/login/reset-password/some_valid_token", json=reset_data
-#     )
-#
-#     assert response.status_code == status.HTTP_400_BAD_REQUEST
-#     mock_reset_password.assert_called_once_with(ANY, 'some_valid_token',
-#                                                 ResetForgetPassword(new_password="new_secure_password",
-#                                                                     confirm_password="different_password"))

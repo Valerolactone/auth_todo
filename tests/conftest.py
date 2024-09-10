@@ -51,7 +51,7 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
         await cleanup_tables(session)
-    session.close()
+    await session.close()
 
 
 @pytest.fixture(scope='function')

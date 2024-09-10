@@ -34,14 +34,17 @@ jobs:
       with:
         python-version: 3.12
 
-    - name: Install poetry
-      uses: snok/install-poetry@v1
+    - name: Install Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+        echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
     - name: Install dependencies
-      run: poetry install
+      run: |
+        poetry install
 
     - name: Run tests
       run: |
-        pytest test.py
+        poetry run pytest tests/test.py --maxfail=1 --disable-warnings -q
       env:
         DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5434/test_auth_db

@@ -153,7 +153,9 @@ async def get_users_emails(
     return users
 
 
-@user_router.post("/register", response_model=UserOut, status_code=status.HTTP_200_OK)
+@user_router.post(
+    "/register", response_model=UserOut, status_code=status.HTTP_201_CREATED
+)
 async def create_user(
     background_tasks: BackgroundTasks,
     body: UserCreate,
@@ -184,12 +186,13 @@ async def read_users(
     sort_by: str = Query('user_pk', alias='sortBy'),
     sort_order: str = Query('asc', alias='sortOrder', pattern='^(asc|desc)$'),
     filter_by: Optional[str] = Query(None, alias='filterBy'),
+    filter_value: Optional[str] = Query(None, alias='filterValue'),
     db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = UserService(db)
         return await user_service.get_paginated_users(
-            page, page_size, sort_by, sort_order, filter_by
+            page, page_size, sort_by, sort_order, filter_by, filter_value
         )
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
@@ -226,7 +229,7 @@ async def update_user(
         )
     except PyJWTError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid token",
         )
 
@@ -247,7 +250,7 @@ async def delete_user(
         )
     except PyJWTError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid token",
         )
 
@@ -293,7 +296,7 @@ async def confirm_email(
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with not found.",
+            detail=f"User not found.",
         )
 
 
@@ -311,6 +314,8 @@ async def login(
         return token_data
     except AuthenticationError as err:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 
 @login_router.post(
@@ -377,7 +382,7 @@ async def reset_password(
         )
     except PyJWTError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid refresh token",
         )
     except (ValueError, PasswordsError) as err:
@@ -576,18 +581,19 @@ async def read_roles_for_permission(
         )
 
 
-@role_permissions_router.delete("/")
+@role_permissions_router.delete("/{role_name}/{permission_name}/")
 async def remove_permission_from_role(
-    role_and_permission: RolePermissionData,
     admin_user: User = Depends(utils.is_admin),
     db: AsyncSession = Depends(get_async_session),
+    role_name: str = Path(...),
+    permission_name: str = Path(...),
 ):
     try:
         role_permission_service = RolePermissionService(db)
-        await role_permission_service.delete_role_permission(role_and_permission)
+        await role_permission_service.delete_role_permission(role_name, permission_name)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Role '{role_and_permission.role}' or permission '{role_and_permission.permission}' not found.",
+            detail=f"Role '{role_name}' or permission '{permission_name}' not found.",
         )

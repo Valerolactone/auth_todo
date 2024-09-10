@@ -65,10 +65,13 @@ class UserService:
         sort_by: str = 'user_pk',
         sort_order: str = 'asc',
         filter_by: Optional[str] = None,
+        filter_value: Optional[str] = None,
     ) -> PaginatedResponse | None:
-        total_users = await self.user_dal.count_users(filter_by=filter_by)
+        total_users = await self.user_dal.count_users(
+            filter_by=filter_by, filter_value=filter_value
+        )
         users = await self.user_dal.fetch_users(
-            page, page_size, sort_by, sort_order, filter_by
+            page, page_size, sort_by, sort_order, filter_by, filter_value
         )
         mapped_users = [
             UserOut(
@@ -109,7 +112,7 @@ class UserService:
         )
 
     async def update_user(self, token: str, user_data: UserUpdate) -> UserOut:
-        db_user = self.auth_service.get_user_from_token(token)
+        db_user = await self.auth_service.get_user_from_token(token)
         user = await self.user_dal.update_user(db_user.user_pk, user_data)
         return UserOut(
             user_pk=user.user_pk,
@@ -120,7 +123,7 @@ class UserService:
         )
 
     async def delete_user(self, token: str):
-        db_user = self.auth_service.get_user_from_token(token)
+        db_user = await self.auth_service.get_user_from_token(token)
         await self.user_dal.delete_user(db_user.user_pk)
 
     async def verify_user(self, user_pk: int):
@@ -418,7 +421,6 @@ class EmailTokenService:
         await self.email_agent.send_message(message)
 
 
-# TODO:
 class ResetPasswordService(EmailTokenService):
     @classmethod
     async def reset_password(
@@ -554,7 +556,7 @@ class RolePermissionService:
             permission_pk
         )
         return PermissionWithRoleOut(
-            role_pk=permission.permission_pk,
+            permission_pk=permission.permission_pk,
             name=permission.name,
             description=permission.description,
             roles=[
@@ -565,5 +567,7 @@ class RolePermissionService:
             ],
         )
 
-    async def delete_role_permission(self, data: RolePermissionData):
-        await self.role_permission_dal.delete_role_permission(data)
+    async def delete_role_permission(self, role_name: str, permission_name: str):
+        await self.role_permission_dal.delete_role_permission(
+            role_name, permission_name
+        )

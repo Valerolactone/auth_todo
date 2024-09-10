@@ -1,93 +1,92 @@
-# from fastapi import status
-# from sqlalchemy import select, and_
-#
-# from db.models import Permission, RolePermission
-# from tests.conftest import *
-#
-#
-# @pytest.fixture(scope="module")
-# async def role():
-#     async with async_session_maker() as session:
-#         async with session.begin():
-#             role = Role(name="moderator", description="Moderator role")
-#             session.add(role)
-#             await session.flush()
-#             await session.refresh(role)
-#             return role
-#
-#
-# @pytest.fixture(scope="module")
-# async def permission():
-#     async with async_session_maker() as session:
-#         async with session.begin():
-#             permission = Permission(name="read", description="Read permission")
-#             session.add(permission)
-#             await session.flush()
-#             await session.refresh(permission)
-#             return permission
-#
-#
-# async def test_assign_permission_to_role_as_admin(
-#         async_client: AsyncClient,
-#         admin_token: str,
-#         role, permission):
-#     response = await async_client.post(
-#         "/role_permissions/",
-#         json={"role": role.name, "permission": permission.name},
-#         headers={"Authorization": f"Bearer {admin_token}"}
-#     )
-#
-#     assert response.status_code == status.HTTP_201_CREATED
-#     response_data = response.json()
-#     assert response_data["role_pk"] == role.role_pk
-#     assert response_data["permission_pk"] == permission.permission_pk
-#     assert response_data["role"] == role.name
-#     assert response_data["permission"] == permission.name
-#
-#     async with async_session_maker() as session:
-#         role_permission = await session.execute(
-#             select(RolePermission).filter_by(and_(role_pk=role.role_pk, permission_pk=permission.permission_pk)))
-#         assert role_permission is not None
-#
-#
-# async def test_assign_permission_to_role_as_non_admin(
-#         async_client: AsyncClient,
-#         non_admin_token: str,
-#         role, permission):
-#     response = await async_client.post(
-#         "/role_permissions/",
-#         json={"role": role.name, "permission": permission.name},
-#         headers={"Authorization": f"Bearer {non_admin_token}"}
-#     )
-#
-#     assert response.status_code == status.HTTP_403_FORBIDDEN
-#
-#
-# async def test_assign_permission_to_role_unauthorized(
-#         async_client: AsyncClient,
-#         non_admin_token: str,
-#         role, permission):
-#     response = await async_client.post(
-#         "/role_permissions/",
-#         json={"role": role.name, "permission": permission.name},
-#         headers={"Authorization": f"Bearer {non_admin_token}"}
-#     )
-#
-#     assert response.status_code == status.HTTP_403_FORBIDDEN
-#
-#
-# async def test_assign_permission_to_role_invalid_data(
-#         async_client: AsyncClient,
-#         admin_token: str
-# ):
-#     invalid_role_permission_data = {
-#         "role": "admin",
-#     }
-#
-#     response = await async_client.post(
-#         "/role_permissions/",
-#         json=invalid_role_permission_data,
-#         headers={"Authorization": f"Bearer {admin_token}"}
-#     )
-#
-#     assert response.status_code == status.HTTP_400_BAD_REQUEST
+from sqlalchemy import and_, select
+
+from db.models import RolePermission
+from tests.conftest import *
+
+
+async def test_assign_permission_to_role_as_admin(
+    async_session: AsyncSession,
+    async_client: AsyncClient,
+    admin_user: User,
+    admin_token: str,
+    role_for_test: Role,
+    permission_for_test: Permission,
+):
+    response = await async_client.post(
+        "/rp/",
+        json={"role": role_for_test.name, "permission": permission_for_test.name},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    data = response.json()
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert data["role_pk"] == role_for_test.role_pk
+    assert data["permission_pk"] == permission_for_test.permission_pk
+    assert data["role"] == role_for_test.name
+    assert data["permission"] == permission_for_test.name
+
+    role_permission = await async_session.execute(
+        select(RolePermission).where(
+            and_(
+                RolePermission.role_pk == role_for_test.role_pk,
+                RolePermission.permission_pk == permission_for_test.permission_pk,
+            )
+        )
+    )
+    assert role_permission.scalar() is not None
+
+
+async def test_assign_permission_to_role_as_not_admin(
+    async_client: AsyncClient,
+    not_admin_user: User,
+    not_admin_token: str,
+    role_for_test: Role,
+    permission_for_test: Permission,
+):
+    response = await async_client.post(
+        "/rp/",
+        json={"role": role_for_test.name, "permission": permission_for_test.name},
+        headers={"Authorization": f"Bearer {not_admin_token}"},
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+async def test_assign_permission_to_role_as_not_admin(
+    async_client: AsyncClient,
+    not_admin_user: User,
+    not_admin_token: str,
+    role_for_test: Role,
+    permission_for_test: Permission,
+):
+    response = await async_client.post(
+        "/rp/",
+        json={"role": role_for_test.name, "permission": permission_for_test.name},
+        headers={"Authorization": f"Bearer {not_admin_token}"},
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+async def test_assign_permission_to_role_unauthorized(
+    async_client: AsyncClient, role_for_test: Role, permission_for_test: Permission
+):
+    response = await async_client.post(
+        "/rp/",
+        json={"role": role_for_test.name, "permission": permission_for_test.name},
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+async def test_assign_permission_to_role_invalid_data(
+    async_client: AsyncClient, admin_user: User, admin_token: str
+):
+    invalid_role_permission_data = {"role": "admin"}
+    response = await async_client.post(
+        "/rp/",
+        json=invalid_role_permission_data,
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

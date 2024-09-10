@@ -1,105 +1,89 @@
-# from sqlalchemy import select
-# from fastapi import status
-#
-# from db.models import Permission, RolePermission
-# from tests.conftest import *
-# @pytest.mark.asyncio
-# async def test_remove_permission_from_role_success(
-#         async_client: AsyncClient,
-#         admin_token: str,
-#         async_session_maker
-# ):
-#     # Setup: Create a role and a permission, then assign the permission to the role
-#     async with async_session_maker() as session:
-#         async with session.begin():
-#             role = Role(name="test_role", description="A test role")
-#             session.add(role)
-#             await session.flush()
-#             await session.refresh(role)
-#
-#             permission = Permission(name="test_permission", description="A test permission")
-#             session.add(permission)
-#             await session.flush()
-#             await session.refresh(permission)
-#
-#             role_permission = RolePermission(role_id=role.role_pk, permission_id=permission.permission_pk)
-#             session.add(role_permission)
-#             await session.flush()
-#
-#     # Act: Remove the permission from the role
-#     response = await async_client.delete(
-#         "/role_permissions/",
-#         json={
-#             "role": role.role_pk,
-#             "permission": permission.permission_pk
-#         },
-#         headers={"Authorization": f"Bearer {admin_token}"}
-#     )
-#
-#     # Assert: Check response status
-#     assert response.status_code == status.HTTP_204_NO_CONTENT
-#
-#     # Verify the permission is removed
-#     async with async_session_maker() as session:
-#         result = await session.execute(
-#             "SELECT * FROM role_permissions WHERE role_id = :role_id AND permission_id = :permission_id",
-#             {"role_id": role.role_pk, "permission_id": permission.permission_pk}
-#         )
-#         assert result.rowcount == 0
-#
-#
-# @pytest.mark.asyncio
-# async def test_remove_permission_from_role_not_found(
-#         async_client: AsyncClient,
-#         admin_token: str
-# ):
-#     # Act: Try to remove a permission from a role that does not exist
-#     response = await async_client.delete(
-#         "/role_permissions/",
-#         json={
-#             "role": 9999,  # Assuming 9999 is a non-existent role_id
-#             "permission": 9999  # Assuming 9999 is a non-existent permission_id
-#         },
-#         headers={"Authorization": f"Bearer {admin_token}"}
-#     )
-#
-#     # Assert: Should return 404 Not Found
-#     assert response.status_code == status.HTTP_404_NOT_FOUND
-#     assert response.json()["detail"] == "Role '9999' or permission '9999' not found."
-#
-#
-# @pytest.mark.asyncio
-# async def test_remove_permission_from_role_unauthorized(
-#         async_client: AsyncClient,
-#         non_admin_token: str
-# ):
-#     # Setup: Create a role and a permission, then assign the permission to the role
-#     async with async_session_maker() as session:
-#         async with session.begin():
-#             role = Role(name="test_role_unauth", description="A test role for unauthorized test")
-#             session.add(role)
-#             await session.flush()
-#             await session.refresh(role)
-#
-#             permission = Permission(name="test_permission_unauth",
-#                                     description="A test permission for unauthorized test")
-#             session.add(permission)
-#             await session.flush()
-#             await session.refresh(permission)
-#
-#             role_permission = RolePermission(role_id=role.role_pk, permission_id=permission.permission_pk)
-#             session.add(role_permission)
-#             await session.flush()
-#
-#     # Act: Try to remove the permission from the role with a non-admin token
-#     response = await async_client.delete(
-#         "/role_permissions/",
-#         json={
-#             "role": role.role_pk,
-#             "permission": permission.permission_pk
-#         },
-#         headers={"Authorization": f"Bearer {non_admin_token}"}
-#     )
-#
-#     # Assert: Should return 403 Forbidden
-#     assert response.status_code == status.HTTP_403_FORBIDDEN
+from sqlalchemy import and_, select
+
+from db.models import RolePermission
+from tests.conftest import *
+
+
+@pytest.fixture
+async def assign_permission_to_role(
+    async_session: AsyncSession, role_for_test: Role, permission_for_test: Permission
+):
+    role_permission = RolePermission(
+        role_pk=role_for_test.role_pk, permission_pk=permission_for_test.permission_pk
+    )
+    async_session.add(role_permission)
+    await async_session.flush()
+
+
+async def test_remove_permission_from_role_as_admin(
+    async_session: AsyncSession,
+    async_client: AsyncClient,
+    admin_user: User,
+    admin_token: str,
+    assign_permission_to_role,
+    role_for_test: Role,
+    permission_for_test: Permission,
+):
+    response = await async_client.delete(
+        f"/rp/{role_for_test.name}/{permission_for_test.name}/",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    deleted_role_permission = await async_session.execute(
+        select(RolePermission).where(
+            and_(
+                RolePermission.role_pk == role_for_test.role_pk,
+                RolePermission.permission_pk == permission_for_test.permission_pk,
+            )
+        )
+    )
+
+    assert deleted_role_permission.scalar() is None
+
+
+async def test_remove_permission_from_role_not_existent(
+    async_client: AsyncClient, admin_user: User, admin_token: str
+):
+    not_existent_role = "role"
+    not_existent_permission = "permission"
+    response = await async_client.delete(
+        f"/rp/{not_existent_role}/{not_existent_permission}/",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert (
+        response.json()["detail"]
+        == f"Role '{not_existent_role}' or permission '{not_existent_permission}' not found."
+    )
+
+
+async def test_remove_permission_from_role_as_not_admin(
+    async_client: AsyncClient,
+    not_admin_user: User,
+    not_admin_token: str,
+    assign_permission_to_role,
+    role_for_test: Role,
+    permission_for_test: Permission,
+):
+    response = await async_client.delete(
+        f"/rp/{role_for_test.name}/{permission_for_test.name}/",
+        headers={"Authorization": f"Bearer {not_admin_token}"},
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+async def test_remove_permission_from_role_unauthorized(
+    async_client: AsyncClient,
+    assign_permission_to_role,
+    role_for_test: Role,
+    permission_for_test: Permission,
+):
+    response = await async_client.delete(
+        f"/rp/{role_for_test.name}/{permission_for_test.name}/",
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED

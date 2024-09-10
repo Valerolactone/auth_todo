@@ -29,7 +29,7 @@ ALLOWED_SORT_FIELDS = [
 ]
 
 ALLOWED_FILTER_FIELDS = [
-    'role_id',
+    'role',
 ]
 
 
@@ -76,10 +76,15 @@ class UserDAL:
         users = result.scalars().all()
         return users
 
-    async def count_users(self, filter_by: Optional[str] = None) -> int:
+    async def count_users(
+        self, filter_by: Optional[str] = None, filter_value: Optional[str] = None
+    ) -> int:
         query = select(func.count()).select_from(User)
-        if filter_by and filter_by in ALLOWED_FILTER_FIELDS:
-            query = query.where(User.name.ilike(f"%{filter_by}%"))
+        if filter_by and filter_value and filter_by in ALLOWED_FILTER_FIELDS:
+            if filter_by == 'role':
+                query = query.join(User.role).where(
+                    Role.name.ilike(f"%{filter_value}%")
+                )
         result = await self.db_session.execute(query)
         total_users = result.scalar_one()
         return total_users
@@ -91,6 +96,7 @@ class UserDAL:
         sort_by: str,
         sort_order: str,
         filter_by: Optional[str] = None,
+        filter_value: Optional[str] = None,
     ) -> Sequence[User]:
         skip = (page - 1) * page_size
         if sort_by not in ALLOWED_SORT_FIELDS:
@@ -100,10 +106,13 @@ class UserDAL:
             raise ValueError(f"Invalid sort order: {sort_order}")
 
         query = select(User).options(joinedload(User.role))
-        if filter_by:
+        if filter_by and filter_value:
             if filter_by not in ALLOWED_FILTER_FIELDS:
                 raise ValueError(f"Invalid filter field: {filter_by}")
-            query = query.where(User.name.ilike(f"%{filter_by}%"))
+            if filter_by == 'role':
+                query = query.join(User.role).where(
+                    Role.name.ilike(f"%{filter_value}%")
+                )
 
         if sort_order == 'desc':
             query = query.order_by(desc(sort_by))
@@ -123,9 +132,11 @@ class UserDAL:
             for key, value in update_data.items():
                 setattr(db_user, key, value)
         else:
-            role_pk = await self._get_role_pk(role_name=user_data.role_name)
-            db_user.role_id = role_pk
-            db_user.is_active = user_data.is_active
+            if "role_name" in update_data:
+                role_pk = await self._get_role_pk(role_name=user_data.role_name)
+                db_user.role_id = role_pk
+            if "is_active" in update_data:
+                db_user.is_active = user_data.is_active
         await self.db_session.flush()
         await self.db_session.refresh(db_user)
         return db_user
@@ -325,9 +336,9 @@ class RolePermissionDAL:
         permission = result.scalar_one()
         return permission
 
-    async def delete_role_permission(self, data: RolePermissionData):
-        role = await self._get_role_by_name(data.role)
-        permission = await self._get_permission_by_name(data.permission)
+    async def delete_role_permission(self, role_name: str, permission_name: str):
+        role = await self._get_role_by_name(role_name)
+        permission = await self._get_permission_by_name(permission_name)
         db_role_permission = await self._get_role_permission(
             role_pk=role.role_pk, permission_pk=permission.permission_pk
         )

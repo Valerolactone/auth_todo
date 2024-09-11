@@ -29,6 +29,15 @@ jobs:
     - name: Checkout branch
       uses: actions/checkout@v4
 
+    - name: Create .env file
+      run: |
+        echo "ACCESS_TOKEN_EXPIRATION_TIME=${{ secrets.ACCESS_TOKEN_EXPIRATION_TIME }}" >> .env
+        echo "REFRESH_TOKEN_EXPIRATION_TIME=${{ secrets.REFRESH_TOKEN_EXPIRATION_TIME }}" >> .env
+        echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> .env
+        echo "JWT_ALGORITHM=${{ secrets.JWT_ALGORITHM }}" >> .env
+        echo "JWT_FOR_LINK_SECRET_KEY=${{ secrets.JWT_FOR_LINK_SECRET_KEY }}" >> .env
+        echo "LINK_EXPIRE_MINUTES=${{ secrets.LINK_EXPIRE_MINUTES }}" >> .env
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:

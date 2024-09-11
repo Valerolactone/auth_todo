@@ -10,7 +10,7 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT", 5432)
+DB_PORT = os.getenv("DB_PORT")
 
 SQLALCHEMY_DATABASE_URL = (
     f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -21,7 +21,7 @@ engine = create_async_engine(
     echo=True,
 )
 
-async_session = sessionmaker(
+AsyncSessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine,
@@ -31,11 +31,6 @@ async_session = sessionmaker(
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    async with async_session.begin() as session:
-        try:
-            yield session
-        except:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    async with AsyncSessionLocal() as session:
+        yield session
+    await session.close()

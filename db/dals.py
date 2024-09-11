@@ -39,16 +39,16 @@ class UserDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def _get_role_pk(self, role_name: str) -> int:
-        query = select(Role.role_pk).where(Role.name == role_name)
+    async def _get_role_by_name(self, role_name: str) -> int:
+        query = select(Role).where(Role.name == role_name)
         result = await self.db_session.execute(query)
-        role_pk = result.scalar_one()
-        return role_pk
+        role = result.scalar_one()
+        return role
 
     async def create_user(self, user_data: UserCreate) -> User:
         default_role_name = "user"
-        role_pk = await self._get_role_pk(role_name=default_role_name)
-        db_user = User(role_id=role_pk, **user_data.dict())
+        role = await self._get_role_by_name(role_name=default_role_name)
+        db_user = User(role_id=role.role_pk, **user_data.dict())
         self.db_session.add(db_user)
         await self.db_session.flush()
         await self.db_session.refresh(db_user)
@@ -133,8 +133,8 @@ class UserDAL:
                 setattr(db_user, key, value)
         else:
             if "role_name" in update_data:
-                role_pk = await self._get_role_pk(role_name=user_data.role_name)
-                db_user.role_id = role_pk
+                role = await self._get_role_by_name(role_name=user_data.role_name)
+                db_user.role_id = role.role_pk
             if "is_active" in update_data:
                 db_user.is_active = user_data.is_active
         await self.db_session.flush()

@@ -380,7 +380,7 @@ class EmailTokenService:
         )
         self.email_agent = FastMail(self.mail_conf)
         self._secret_token = self._create_token_for_link()
-        self._link = f"{os.getenv("APP_HOST")}{self.endpoint}/{self._secret_token}"
+        self._link = f"{os.getenv('APP_HOST')}{self.endpoint}/{self._secret_token}"
         self.email_body = f"""
                         Please {self.action} by clicking the link below (valid for {int(os.getenv("LINK_EXPIRE_MINUTES"))} minutes): 
                         {self._link}

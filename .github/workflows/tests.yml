@@ -35,6 +35,7 @@ jobs:
           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
           echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
           echo "DB_PORT=${{ secrets.DB_PORT }}" >> .env
+          echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
           echo "TEST_DB_NAME=${{ secrets.TEST_DB_NAME }}" >> .env
           
           echo "ACCESS_TOKEN_EXPIRATION_MINUTES=${{ secrets.ACCESS_TOKEN_EXPIRATION_MINUTES }}" >> .env
@@ -44,14 +45,6 @@ jobs:
           echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> .env
           echo "JWT_ALGORITHM=${{ secrets.JWT_ALGORITHM }}" >> .env
           echo "JWT_FOR_LINK_SECRET_KEY=${{ secrets.JWT_FOR_LINK_SECRET_KEY }}" >> .env
-          
-          echo "RESET_PASSWORD_URL=${{ secrets.RESET_PASSWORD_URL }}" >> .env
-          echo "CONFIRM_REGISTRATION_URL=${{ secrets.CONFIRM_REGISTRATION_URL }}" >> .env
-          
-          echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> .env
-          echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> .env
-          echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> .env
-          echo "MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}" >> .env
 
       - name: Set up Python
         uses: actions/setup-python@v5

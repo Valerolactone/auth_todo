@@ -18,7 +18,13 @@ from main import app
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALEMBIC_CONFIG_PATH = os.path.join(ROOT_DIR, 'alembic.ini')
 
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5434/test_auth_db"
+DB_USER = os.getenv("DB_USER")
+TEST_DB_PASSWORD = os.getenv("TEST_DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+TEST_DB_PORT = os.getenv("TEST_DB_PORT")
+TEST_DB_NAME = os.getenv("TEST_DB_NAME")
+
+TEST_DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{TEST_DB_PASSWORD}@{DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
 
 async_test_engine = create_async_engine(TEST_DATABASE_URL, echo=True)
 
@@ -56,7 +62,7 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(scope='function')
 async def async_client(
-    async_session: AsyncSession,
+        async_session: AsyncSession,
 ) -> AsyncGenerator[AsyncSession, None]:
     async def override_get_db():
         yield async_session

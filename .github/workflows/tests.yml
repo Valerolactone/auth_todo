@@ -31,6 +31,11 @@ jobs:
 
     - name: Create .env file
       run: |
+        echo "DB_USER=${{ secrets.DB_USER }}" >> .env
+        echo "TEST_DB_PASSWORD=${{ secrets.TEST_DB_PASSWORD }}" >> .env
+        echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
+        echo "TEST_DB_PORT=${{ secrets.DB_PORT }}" >> .env
+        echo "TEST_DB_NAME=${{ secrets.TEST_DB_NAME }}" >> .env
         echo "ACCESS_TOKEN_EXPIRATION_TIME=${{ secrets.ACCESS_TOKEN_EXPIRATION_TIME }}" >> .env
         echo "REFRESH_TOKEN_EXPIRATION_TIME=${{ secrets.REFRESH_TOKEN_EXPIRATION_TIME }}" >> .env
         echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> .env

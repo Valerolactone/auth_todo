@@ -45,6 +45,9 @@ jobs:
           echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> .env
           echo "JWT_ALGORITHM=${{ secrets.JWT_ALGORITHM }}" >> .env
           echo "JWT_FOR_LINK_SECRET_KEY=${{ secrets.JWT_FOR_LINK_SECRET_KEY }}" >> .env
+          
+          echo "RESET_PASSWORD_URL=${{ secrets.RESET_PASSWORD_URL }}" >> .env
+          echo "CONFIRM_REGISTRATION_URL=${{ secrets.CONFIRM_REGISTRATION_URL }}" >> .env
 
       - name: Set up Python
         uses: actions/setup-python@v5

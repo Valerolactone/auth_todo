@@ -48,6 +48,12 @@ jobs:
           
           echo "RESET_PASSWORD_URL=${{ secrets.RESET_PASSWORD_URL }}" >> .env
           echo "CONFIRM_REGISTRATION_URL=${{ secrets.CONFIRM_REGISTRATION_URL }}" >> .env
+          
+          echo "MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}" >> .env
+          echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> .env
+          echo "MAIL_PORT=${{ secrets.MAIL_PORT }}" >> .env
+          echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> .env
+          echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> .env
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -65,6 +71,6 @@ jobs:
 
       - name: Run tests
         run: |
-          poetry run pytest tests/test.py 
+          poetry run pytest tests/test.py
         env:
           ENV_FILE: .env

@@ -65,6 +65,6 @@ jobs:
 
       - name: Run tests
         run: |
-          poetry run pytest tests/test.py --maxfail=1 --disable-warnings -q
+          poetry run pytest tests/test.py 
         env:
           ENV_FILE: .env

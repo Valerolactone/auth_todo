@@ -6,7 +6,7 @@ from typing import Optional
 class Settings(BaseSettings):
     app_host: Optional[str] = Field(None, env="APP_HOST")
     reset_password_url: Optional[str] = Field(None, env="RESET_PASSWORD_URL")
-    confirm_registration_url: Optional[str] = not Field(None, env= "CONFIRM_REGISTRATION_URL")
+    confirm_registration_url: Optional[str] = Field(None, env= "CONFIRM_REGISTRATION_URL")
     drf_url: Optional[str] = Field(None, env="DRF_URL")
 
     db_user: str = Field(..., env="DB_USER")

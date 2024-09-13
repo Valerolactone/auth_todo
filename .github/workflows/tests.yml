@@ -14,11 +14,11 @@ jobs:
       postgres:
         image: postgres:latest
         env:
-          POSTGRES_USER: ${DB_USER}
-          POSTGRES_PASSWORD: ${DB_PASSWORD}
-          POSTGRES_DB: ${TEST_DB_NAME}
+          POSTGRES_USER: ${{ secrets.DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.TEST_DB_NAME }}
         ports:
-          - ${DB_PORT}:5432
+          - ${{ secrets.DB_PORT }}:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s 
@@ -64,4 +64,4 @@ jobs:
         run: |
           poetry run pytest tests/test.py --maxfail=1 --disable-warnings -q
         env:
-          DATABASE_URL: postgresql+asyncpg://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.TEST_DB_NAME }}
+          ENV_FILE: .env

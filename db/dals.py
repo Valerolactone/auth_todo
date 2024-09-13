@@ -39,7 +39,7 @@ class UserDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def _get_role_by_name(self, role_name: str) -> int:
+    async def _get_role_by_name(self, role_name: str) -> Role:
         query = select(Role).where(Role.name == role_name)
         result = await self.db_session.execute(query)
         role = result.scalar_one()

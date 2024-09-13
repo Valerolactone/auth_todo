@@ -55,6 +55,7 @@ from app.services import (
 )
 from db.models import User
 from db.session import get_async_session
+from settings import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
@@ -167,7 +168,7 @@ async def create_user(
         email_registration_confirmation_service = EmailTokenService(
             subject="Confirm Registration Instructions",
             action="confirm your email",
-            endpoint=os.getenv("CONFIRM_REGISTRATION_URL"),
+            endpoint=settings.confirm_registration_url,
             email=body.email,
         )
 
@@ -262,7 +263,7 @@ async def send_new_confirmation_link(
     email_registration_confirmation_service = EmailTokenService(
         subject="Confirm Registration Instructions",
         action="confirm your email",
-        endpoint=os.getenv("CONFIRM_REGISTRATION_URL"),
+        endpoint=settings.confirm_registration_url,
         email=confirm_registration_request.email,
     )
 
@@ -354,7 +355,7 @@ async def forget_password(
         email_password_reset_service = EmailTokenService(
             subject="Password Reset Instructions",
             action="reset your password",
-            endpoint=os.getenv("RESET_PASSWORD_URL"),
+            endpoint=settings.reset_password_url,
             email=user.email,
         )
 

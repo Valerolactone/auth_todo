@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
@@ -31,6 +30,7 @@ from app.schemas import (
 )
 from db.dals import PermissionDAL, RoleDAL, RolePermissionDAL, TokenDAL, UserDAL
 from db.models import User
+from settings import settings
 
 
 class UserService:
@@ -238,8 +238,8 @@ class AuthenticationService:
     async def get_user_from_token(self, token: str) -> User:
         payload = jwt.decode(
             token,
-            os.getenv("JWT_SECRET_KEY"),
-            algorithms=os.getenv("JWT_ALGORITHM"),
+            settings.jwt_secret_key,
+            algorithms=settings.jwt_algorithm,
         )
         user_pk: str = payload.get("user_pk")
         return await self.user_dal.get_user_by_pk(user_pk=user_pk)
@@ -277,11 +277,11 @@ class TokenService:
             expire = datetime.utcnow() + expires_delta
         else:
             expire = datetime.utcnow() + timedelta(
-                minutes=int(os.getenv("ACCESS_TOKEN_EXPIRATION_TIME"))
+                minutes=settings.access_token_expiration_minutes
             )
         to_encode.update({"exp": expire})
         token = jwt.encode(
-            to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
+            to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
         )
         return {
             "access_token": token,
@@ -293,8 +293,8 @@ class TokenService:
         try:
             payload = jwt.decode(
                 refresh_token,
-                os.getenv("JWT_SECRET_KEY"),
-                algorithms=[os.getenv("JWT_ALGORITHM")],
+                settings.jwt_secret_key,
+                algorithms=[settings.jwt_algorithm],
             )
             user_pk = payload.get("user_pk")
             user = await self.user_dal.get_user_by_pk(user_pk=user_pk)
@@ -330,11 +330,11 @@ class TokenService:
             user_data = await self._set_jwt_payload()
         to_encode = user_data.copy()
         expire = datetime.utcnow() + timedelta(
-            days=int(os.getenv("REFRESH_TOKEN_EXPIRATION_TIME"))
+            days=settings.refresh_token_expiration_days
         )
         to_encode.update({"exp": expire})
         token = jwt.encode(
-            to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
+            to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
         )
         return {
             "user_pk": user_data["user_pk"],
@@ -370,33 +370,33 @@ class EmailTokenService:
         self.endpoint = endpoint
         self.email = email
         self.mail_conf = ConnectionConfig(
-            MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-            MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-            MAIL_FROM=os.getenv("MAIL_USERNAME"),
-            MAIL_PORT=587,
-            MAIL_SERVER=os.getenv("MAIL_SERVER"),
+            MAIL_USERNAME=settings.mail_username,
+            MAIL_PASSWORD=settings.mail_password,
+            MAIL_FROM=settings.mail_username,
+            MAIL_PORT=settings.mail_port,
+            MAIL_SERVER=settings.mail_server,
             MAIL_STARTTLS=True,
             MAIL_SSL_TLS=False,
         )
         self.email_agent = FastMail(self.mail_conf)
         self._secret_token = self._create_token_for_link()
-        self._link = f"{os.getenv('APP_HOST')}{self.endpoint}/{self._secret_token}"
+        self._link = f"{settings.app_host}{self.endpoint}/{self._secret_token}"
         self.email_body = f"""
-                        Please {self.action} by clicking the link below (valid for {int(os.getenv("LINK_EXPIRE_MINUTES"))} minutes): 
+                        Please {self.action} by clicking the link below (valid for {settings.link_expiration_minutes} minutes): 
                         {self._link}
                         Thank you,
-                        {os.getenv("MAIL_FROM_NAME")}"""
+                        {settings.mail_from_name}"""
 
     def _create_token_for_link(self) -> str:
         data = {
             "sub": self.email,
             "exp": datetime.utcnow()
-            + timedelta(minutes=int(os.getenv("LINK_EXPIRE_MINUTES"))),
+            + timedelta(minutes=settings.link_expiration_minutes),
         }
         token = jwt.encode(
             data,
-            os.getenv("JWT_FOR_LINK_SECRET_KEY"),
-            algorithm=os.getenv("JWT_ALGORITHM"),
+            settings.jwt_secret_key,
+            algorithm=settings.jwt_algorithm,
         )
         return token
 
@@ -404,8 +404,8 @@ class EmailTokenService:
     def _decode_token_from_link(cls, token: str) -> str | None:
         payload = jwt.decode(
             token,
-            os.getenv("JWT_FOR_LINK_SECRET_KEY"),
-            algorithms=[os.getenv("JWT_ALGORITHM")],
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
         )
         email: str = payload.get("sub")
         return email

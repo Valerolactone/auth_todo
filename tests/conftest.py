@@ -14,17 +14,12 @@ from alembic.config import Config
 from db.models import Base, Permission, Role, User
 from db.session import get_async_session
 from main import app
+from settings import settings
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALEMBIC_CONFIG_PATH = os.path.join(ROOT_DIR, 'alembic.ini')
 
-DB_USER = os.getenv("DB_USER")
-TEST_DB_PASSWORD = os.getenv("TEST_DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-TEST_DB_PORT = os.getenv("TEST_DB_PORT")
-TEST_DB_NAME = os.getenv("TEST_DB_NAME")
-
-TEST_DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{TEST_DB_PASSWORD}@{DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
+TEST_DATABASE_URL = f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.test_db_name}"
 
 async_test_engine = create_async_engine(TEST_DATABASE_URL, echo=True)
 
@@ -62,7 +57,7 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(scope='function')
 async def async_client(
-        async_session: AsyncSession,
+    async_session: AsyncSession,
 ) -> AsyncGenerator[AsyncSession, None]:
     async def override_get_db():
         yield async_session

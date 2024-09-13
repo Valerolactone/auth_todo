@@ -1,8 +1,6 @@
 import os
 from typing import List, Optional
 
-import utils
-from exceptions import AuthenticationError, PasswordsError
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -15,7 +13,12 @@ from fastapi import (
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt import ExpiredSignatureError, PyJWTError
-from schemas import (
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import utils
+from app.exceptions import AuthenticationError, PasswordsError
+from app.schemas import (
     AdminUserUpdate,
     ExpandUserData,
     PaginatedResponse,
@@ -38,9 +41,6 @@ from schemas import (
     UsersWithEmails,
     UserUpdate,
 )
-from sqlalchemy.exc import NoResultFound
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.services import (
     AdminUserService,
     AuthenticationService,
@@ -54,7 +54,7 @@ from app.services import (
     UserService,
 )
 from db.models import User
-from db.session import get_db
+from db.session import get_async_session
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/token")
 
@@ -72,10 +72,10 @@ async def admin_read_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1),
     sort_by: str = Query('user_pk', alias='sortBy'),
-    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    sort_order: str = Query('asc', alias='sortOrder', pattern='^(asc|desc)$'),
     filter_by: Optional[str] = Query(None, alias='filterBy'),
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = AdminUserService(db)
@@ -91,7 +91,7 @@ async def admin_read_users(
 )
 async def admin_read_user(
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     user_pk: int = Path(...),
 ):
     try:
@@ -110,7 +110,7 @@ async def admin_read_user(
 async def admin_update_user(
     user_data: AdminUserUpdate,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     user_pk: int = Path(...),
 ):
     try:
@@ -126,7 +126,7 @@ async def admin_update_user(
 @admin_router.delete("/{user_pk}")
 async def admin_delete_user(
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     user_pk: int = Path(...),
 ):
     try:
@@ -145,17 +145,21 @@ async def admin_delete_user(
     response_model=UsersWithEmails,
     status_code=status.HTTP_200_OK,
 )
-async def get_users_emails(body: UserIds, db: AsyncSession = Depends(get_db)):
+async def get_users_emails(
+    body: UserIds, db: AsyncSession = Depends(get_async_session)
+):
     service = UserService(db)
     users = await service.get_users_with_emails(body.ids)
     return users
 
 
-@user_router.post("/register", response_model=UserOut, status_code=status.HTTP_200_OK)
+@user_router.post(
+    "/register", response_model=UserOut, status_code=status.HTTP_201_CREATED
+)
 async def create_user(
     background_tasks: BackgroundTasks,
     body: UserCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = UserService(db)
@@ -180,14 +184,15 @@ async def read_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1),
     sort_by: str = Query('user_pk', alias='sortBy'),
-    sort_order: str = Query('asc', alias='sortOrder', regex='^(asc|desc)$'),
+    sort_order: str = Query('asc', alias='sortOrder', pattern='^(asc|desc)$'),
     filter_by: Optional[str] = Query(None, alias='filterBy'),
-    db: AsyncSession = Depends(get_db),
+    filter_value: Optional[str] = Query(None, alias='filterValue'),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = UserService(db)
         return await user_service.get_paginated_users(
-            page, page_size, sort_by, sort_order, filter_by
+            page, page_size, sort_by, sort_order, filter_by, filter_value
         )
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
@@ -195,7 +200,7 @@ async def read_users(
 
 @user_router.get("/{user_pk}", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def read_user(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     user_pk: int = Path(...),
 ):
     try:
@@ -212,7 +217,7 @@ async def read_user(
 async def update_user(
     user_data: UserUpdate,
     token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = UserService(db)
@@ -224,7 +229,7 @@ async def update_user(
         )
     except PyJWTError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid token",
         )
 
@@ -232,7 +237,7 @@ async def update_user(
 @user_router.delete("/my_profile", response_model=UserOut)
 async def delete_user(
     token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = UserService(db)
@@ -245,7 +250,7 @@ async def delete_user(
         )
     except PyJWTError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid token",
         )
 
@@ -270,7 +275,7 @@ async def send_new_confirmation_link(
 
 @user_router.get("/confirm-registration/{secret_token}")
 async def confirm_email(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     secret_token: str = Path(...),
 ):
     try:
@@ -291,21 +296,26 @@ async def confirm_email(
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with not found.",
+            detail=f"User not found.",
         )
 
 
 @login_router.post("/token", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         token_service = TokenService(db_session=db, form_data=form_data)
         token_data = await token_service.create_access_token()
         refresh_token = await token_service.add_refresh_token_to_db()
-        return token_data.update(refresh_token)
+
+        token_data.update(refresh_token)
+        return token_data
     except AuthenticationError as err:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err))
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 
 @login_router.post(
@@ -313,7 +323,7 @@ async def login(
 )
 async def refresh_access_token(
     refresh_token: str = Depends(utils.get_refresh_token_from_headers),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         token_service = TokenService(db)
@@ -335,7 +345,7 @@ async def refresh_access_token(
 async def forget_password(
     background_tasks: BackgroundTasks,
     forget_password_request: UserEmail,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     try:
         user_service = AuthenticationService(db)
@@ -357,7 +367,7 @@ async def forget_password(
 @login_router.post("/reset-password/{secret_token}")
 async def reset_password(
     reset_forget_password: ResetForgetPassword,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     secret_token: str = Path(...),
 ):
     try:
@@ -372,7 +382,7 @@ async def reset_password(
         )
     except PyJWTError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Invalid refresh token",
         )
     except (ValueError, PasswordsError) as err:
@@ -385,7 +395,7 @@ async def reset_password(
 async def create_permission(
     permission: PermissionCreate,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     permission_service = PermissionService(db)
     return await permission_service.create_permission(permission)
@@ -394,7 +404,7 @@ async def create_permission(
 @permission_router.get(
     "/", response_model=List[PermissionOut], status_code=status.HTTP_200_OK
 )
-async def read_permissions(db: AsyncSession = Depends(get_db)):
+async def read_permissions(db: AsyncSession = Depends(get_async_session)):
     permission_service = PermissionService(db)
     return await permission_service.read_permissions()
 
@@ -403,7 +413,7 @@ async def read_permissions(db: AsyncSession = Depends(get_db)):
     "/{permission_pk}", response_model=PermissionOut, status_code=status.HTTP_200_OK
 )
 async def read_permission(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     permission_pk: int = Path(...),
 ):
     try:
@@ -422,7 +432,7 @@ async def read_permission(
 async def update_permission(
     permission: PermissionUpdate,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     permission_pk: int = Path(...),
 ):
     try:
@@ -440,7 +450,7 @@ async def update_permission(
 )
 async def delete_permission(
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     permission_pk: int = Path(...),
 ):
     try:
@@ -458,21 +468,21 @@ async def delete_permission(
 async def create_role(
     role: RoleCreate,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     role_service = RoleService(db)
     return await role_service.create_role(role)
 
 
 @role_router.get("/", response_model=List[RoleOut], status_code=status.HTTP_200_OK)
-async def read_roles(db: AsyncSession = Depends(get_db)):
+async def read_roles(db: AsyncSession = Depends(get_async_session)):
     role_service = RoleService(db)
     return await role_service.read_roles()
 
 
 @role_router.get("/{role_pk}", response_model=RoleOut, status_code=status.HTTP_200_OK)
 async def read_role(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     role_pk: int = Path(...),
 ):
     try:
@@ -489,7 +499,7 @@ async def read_role(
 async def update_role(
     role: RoleUpdate,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     role_pk: int = Path(...),
 ):
     try:
@@ -505,7 +515,7 @@ async def update_role(
 @role_router.delete("/{role_pk}")
 async def delete_role(
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     role_pk: int = Path(...),
 ):
     try:
@@ -525,7 +535,7 @@ async def delete_role(
 async def assign_permission_to_role(
     role_and_permission: RolePermissionData,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     role_permission_service = RolePermissionService(db)
     return await role_permission_service.create_role_permission(role_and_permission)
@@ -538,7 +548,7 @@ async def assign_permission_to_role(
 )
 async def read_permissions_for_role(
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     role_pk: int = Path(...),
 ):
     try:
@@ -558,7 +568,7 @@ async def read_permissions_for_role(
 )
 async def read_roles_for_permission(
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
     permission_pk: int = Path(...),
 ):
     try:
@@ -571,18 +581,19 @@ async def read_roles_for_permission(
         )
 
 
-@role_permissions_router.delete("/")
+@role_permissions_router.delete("/{role_name}/{permission_name}/")
 async def remove_permission_from_role(
-    role_and_permission: RolePermissionData,
     admin_user: User = Depends(utils.is_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
+    role_name: str = Path(...),
+    permission_name: str = Path(...),
 ):
     try:
         role_permission_service = RolePermissionService(db)
-        await role_permission_service.delete_role_permission(role_and_permission)
+        await role_permission_service.delete_role_permission(role_name, permission_name)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Role '{role_and_permission.role}' or permission '{role_and_permission.permission}' not found.",
+            detail=f"Role '{role_name}' or permission '{permission_name}' not found.",
         )

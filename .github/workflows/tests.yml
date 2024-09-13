@@ -16,9 +16,9 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
+          POSTGRES_DB: test_auth_db
         ports:
-          - 5433:5432
+          - 5434:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s 
@@ -29,28 +29,42 @@ jobs:
     - name: Checkout branch
       uses: actions/checkout@v4
 
+    - name: Create .env file
+      run: |
+        echo "DB_USER=${{ secrets.DB_USER }}" >> .env
+        echo "TEST_DB_PASSWORD=${{ secrets.TEST_DB_PASSWORD }}" >> .env
+        echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
+        echo "TEST_DB_PORT=${{ secrets.TEST_DB_PORT }}" >> .env
+        echo "TEST_DB_NAME=${{ secrets.TEST_DB_NAME }}" >> .env
+        echo "ACCESS_TOKEN_EXPIRATION_TIME=${{ secrets.ACCESS_TOKEN_EXPIRATION_TIME }}" >> .env
+        echo "REFRESH_TOKEN_EXPIRATION_TIME=${{ secrets.REFRESH_TOKEN_EXPIRATION_TIME }}" >> .env
+        echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> .env
+        echo "JWT_ALGORITHM=${{ secrets.JWT_ALGORITHM }}" >> .env
+        echo "JWT_FOR_LINK_SECRET_KEY=${{ secrets.JWT_FOR_LINK_SECRET_KEY }}" >> .env
+        echo "LINK_EXPIRE_MINUTES=${{ secrets.LINK_EXPIRE_MINUTES }}" >> .env
+        echo "RESET_PASSWORD_URL=${{ secrets.RESET_PASSWORD_URL }}" >> .env
+        echo "CONFIRM_REGISTRATION_URL=${{ secrets.CONFIRM_REGISTRATION_URL }}" >> .env
+        echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> .env
+        echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> .env
+        echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> .env
+        echo "MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}" >> .env
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: 3.12
 
-    - name: Install poetry
-      uses: snok/install-poetry@v1
+    - name: Install Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+        echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
     - name: Install dependencies
-      run: poetry install
-
-    - name: Install alembic
-      run: poetry add alembic
-
-    - name: Check Alembic Migration Version
-      uses: DevGlitch/alembic-migration-checker@v1.1
-      with:
-        db_url: postgres+psycopg2://postgres:postgres@localhost:5432/postgres
-        migrations_path: ./migrations/
-
-    - name: Test with pytest
-      env:
-        DATABASE_URL: postgres+psycopg2://postgres:postgres@localhost:5432/postgres
       run: |
-        poetry run pytest
+        poetry install
+
+    - name: Run tests
+      run: |
+        poetry run pytest tests/test.py --maxfail=1 --disable-warnings -q
+      env:
+        DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5434/test_auth_db

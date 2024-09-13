@@ -3,11 +3,11 @@ from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
 import jwt
-from exceptions import AuthenticationError, PasswordsError
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import AuthenticationError, PasswordsError
 from app.schemas import (
     AdminUserUpdate,
     ExpandUserData,
@@ -65,10 +65,13 @@ class UserService:
         sort_by: str = 'user_pk',
         sort_order: str = 'asc',
         filter_by: Optional[str] = None,
+        filter_value: Optional[str] = None,
     ) -> PaginatedResponse | None:
-        total_users = await self.user_dal.count_users(filter_by=filter_by)
+        total_users = await self.user_dal.count_users(
+            filter_by=filter_by, filter_value=filter_value
+        )
         users = await self.user_dal.fetch_users(
-            page, page_size, sort_by, sort_order, filter_by
+            page, page_size, sort_by, sort_order, filter_by, filter_value
         )
         mapped_users = [
             UserOut(
@@ -109,7 +112,7 @@ class UserService:
         )
 
     async def update_user(self, token: str, user_data: UserUpdate) -> UserOut:
-        db_user = self.auth_service.get_user_from_token(token)
+        db_user = await self.auth_service.get_user_from_token(token)
         user = await self.user_dal.update_user(db_user.user_pk, user_data)
         return UserOut(
             user_pk=user.user_pk,
@@ -120,7 +123,7 @@ class UserService:
         )
 
     async def delete_user(self, token: str):
-        db_user = self.auth_service.get_user_from_token(token)
+        db_user = await self.auth_service.get_user_from_token(token)
         await self.user_dal.delete_user(db_user.user_pk)
 
     async def verify_user(self, user_pk: int):
@@ -266,7 +269,7 @@ class TokenService:
 
     async def create_access_token(
         self, user_data: dict = None, expires_delta: Optional[timedelta] = None
-    ) -> Token:
+    ) -> dict:
         if user_data is None:
             user_data = await self._set_jwt_payload()
         to_encode = user_data.copy()
@@ -280,9 +283,11 @@ class TokenService:
         token = jwt.encode(
             to_encode, os.getenv("JWT_SECRET_KEY"), algorithm=os.getenv("JWT_ALGORITHM")
         )
-        return Token(
-            access_token=token, access_token_expires_at=expire, token_type="Bearer"
-        )
+        return {
+            "access_token": token,
+            "access_token_expires_at": expire,
+            "token_type": "Bearer",
+        }
 
     async def update_access_token(self, refresh_token: str) -> Token:
         try:
@@ -375,7 +380,7 @@ class EmailTokenService:
         )
         self.email_agent = FastMail(self.mail_conf)
         self._secret_token = self._create_token_for_link()
-        self._link = f"{os.getenv("APP_HOST")}{self.endpoint}/{self._secret_token}"
+        self._link = f"{os.getenv('APP_HOST')}{self.endpoint}/{self._secret_token}"
         self.email_body = f"""
                         Please {self.action} by clicking the link below (valid for {int(os.getenv("LINK_EXPIRE_MINUTES"))} minutes): 
                         {self._link}
@@ -416,7 +421,6 @@ class EmailTokenService:
         await self.email_agent.send_message(message)
 
 
-# TODO:
 class ResetPasswordService(EmailTokenService):
     @classmethod
     async def reset_password(
@@ -552,7 +556,7 @@ class RolePermissionService:
             permission_pk
         )
         return PermissionWithRoleOut(
-            role_pk=permission.permission_pk,
+            permission_pk=permission.permission_pk,
             name=permission.name,
             description=permission.description,
             roles=[
@@ -563,5 +567,7 @@ class RolePermissionService:
             ],
         )
 
-    async def delete_role_permission(self, data: RolePermissionData):
-        await self.role_permission_dal.delete_role_permission(data)
+    async def delete_role_permission(self, role_name: str, permission_name: str):
+        await self.role_permission_dal.delete_role_permission(
+            role_name, permission_name
+        )

@@ -2,7 +2,11 @@ from datetime import datetime
 from logging import getLogger
 from typing import Optional, Sequence
 
-from schemas import (
+from sqlalchemy import and_, asc, desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+
+from app.schemas import (
     AdminUserUpdate,
     PermissionCreate,
     PermissionUpdate,
@@ -12,10 +16,6 @@ from schemas import (
     UserCreate,
     UserUpdate,
 )
-from sqlalchemy import and_, asc, desc, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
-
 from db.models import Permission, RefreshToken, Role, RolePermission, User
 
 logger = getLogger(__name__)
@@ -25,10 +25,11 @@ ALLOWED_SORT_FIELDS = [
     'created_at',
     'role_id',
     'first_name',
+    'email',
 ]
 
 ALLOWED_FILTER_FIELDS = [
-    'role_id',
+    'role',
 ]
 
 
@@ -38,21 +39,20 @@ class UserDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def _get_role_pk(self, role_name: str) -> int:
-        query = select(Role.role_pk).where(Role.name == role_name)
+    async def _get_role_by_name(self, role_name: str) -> int:
+        query = select(Role).where(Role.name == role_name)
         result = await self.db_session.execute(query)
-        role_pk = result.scalar_one()
-        return role_pk
+        role = result.scalar_one()
+        return role
 
     async def create_user(self, user_data: UserCreate) -> User:
-        async with self.db_session.begin():
-            default_role_name = "user"
-            role_pk = self._get_role_pk(role_name=default_role_name)
-            db_user = User(role_id=role_pk, **user_data.dict())
-            self.db_session.add(db_user)
-            await self.db_session.flush()
-            await self.db_session.refresh(db_user)
-            return db_user
+        default_role_name = "user"
+        role = await self._get_role_by_name(role_name=default_role_name)
+        db_user = User(role_id=role.role_pk, **user_data.dict())
+        self.db_session.add(db_user)
+        await self.db_session.flush()
+        await self.db_session.refresh(db_user)
+        return db_user
 
     async def get_user_by_email(self, email: str) -> User | None:
         query = select(User).where(User.email == email).options(joinedload(User.role))
@@ -76,10 +76,15 @@ class UserDAL:
         users = result.scalars().all()
         return users
 
-    async def count_users(self, filter_by: Optional[str] = None) -> int:
+    async def count_users(
+        self, filter_by: Optional[str] = None, filter_value: Optional[str] = None
+    ) -> int:
         query = select(func.count()).select_from(User)
-        if filter_by and filter_by in ALLOWED_FILTER_FIELDS:
-            query = query.where(User.name.ilike(f"%{filter_by}%"))
+        if filter_by and filter_value and filter_by in ALLOWED_FILTER_FIELDS:
+            if filter_by == 'role':
+                query = query.join(User.role).where(
+                    Role.name.ilike(f"%{filter_value}%")
+                )
         result = await self.db_session.execute(query)
         total_users = result.scalar_one()
         return total_users
@@ -91,6 +96,7 @@ class UserDAL:
         sort_by: str,
         sort_order: str,
         filter_by: Optional[str] = None,
+        filter_value: Optional[str] = None,
     ) -> Sequence[User]:
         skip = (page - 1) * page_size
         if sort_by not in ALLOWED_SORT_FIELDS:
@@ -100,10 +106,13 @@ class UserDAL:
             raise ValueError(f"Invalid sort order: {sort_order}")
 
         query = select(User).options(joinedload(User.role))
-        if filter_by:
+        if filter_by and filter_value:
             if filter_by not in ALLOWED_FILTER_FIELDS:
                 raise ValueError(f"Invalid filter field: {filter_by}")
-            query = query.where(User.name.ilike(f"%{filter_by}%"))
+            if filter_by == 'role':
+                query = query.join(User.role).where(
+                    Role.name.ilike(f"%{filter_value}%")
+                )
 
         if sort_order == 'desc':
             query = query.order_by(desc(sort_by))
@@ -117,27 +126,27 @@ class UserDAL:
     async def update_user(
         self, user_pk: int, user_data: UserUpdate | AdminUserUpdate
     ) -> User:
-        async with self.db_session.begin():
-            update_data = user_data.dict(exclude_unset=True)
-            db_user = await self.get_user_by_pk(user_pk)
-            if isinstance(user_data, UserUpdate):
-                for key, value in update_data.items():
-                    setattr(db_user, key, value)
-            else:
-                role_pk = await self._get_role_pk(role_name=user_data.role_name)
-                db_user.role_id = role_pk
+        update_data = user_data.dict(exclude_unset=True)
+        db_user = await self.get_user_by_pk(user_pk)
+        if isinstance(user_data, UserUpdate):
+            for key, value in update_data.items():
+                setattr(db_user, key, value)
+        else:
+            if "role_name" in update_data:
+                role = await self._get_role_by_name(role_name=user_data.role_name)
+                db_user.role_id = role.role_pk
+            if "is_active" in update_data:
                 db_user.is_active = user_data.is_active
-            await self.db_session.flush()
-            await self.db_session.refresh(db_user)
-            return db_user
+        await self.db_session.flush()
+        await self.db_session.refresh(db_user)
+        return db_user
 
     async def delete_user(self, user_pk: int):
-        async with self.db_session.begin():
-            db_user = await self.get_user_by_pk(user_pk)
-            db_user.is_active = False
-            db_user.deleted_at = datetime.utcnow()
-            self.db_session.add(db_user)
-            await self.db_session.flush()
+        db_user = await self.get_user_by_pk(user_pk)
+        db_user.is_active = False
+        db_user.deleted_at = datetime.utcnow()
+        self.db_session.add(db_user)
+        await self.db_session.flush()
 
     async def verify_user(self, user_pk: int):
         db_user = self.get_user_by_pk(user_pk)
@@ -159,14 +168,13 @@ class TokenDAL:
         self.db_session = db_session
 
     async def add_refresh_token(self, data: dict):
-        async with self.db_session.begin():
-            db_refresh_token = RefreshToken(
-                user_pk=data["user_pk"],
-                token=data["refresh_token"],
-                expires_at=data["expires_at"],
-            )
-            self.db_session.add(db_refresh_token)
-            await self.db_session.flush()
+        db_refresh_token = RefreshToken(
+            user_pk=data["user_pk"],
+            token=data["refresh_token"],
+            expires_at=data["expires_at"],
+        )
+        self.db_session.add(db_refresh_token)
+        await self.db_session.flush()
 
     async def get_refresh_token(self, token: str) -> RefreshToken:
         query = select(RefreshToken).where(
@@ -177,12 +185,11 @@ class TokenDAL:
         return refresh_token
 
     async def update_refresh_token(self, old_refresh_token: str, data: dict):
-        async with self.db_session.begin():
-            db_refresh_token = await self.get_refresh_token(old_refresh_token)
-            db_refresh_token.token = data["refresh_token"]
-            db_refresh_token.expires_at = data["expires_at"]
-            self.db_session.add(db_refresh_token)
-            await self.db_session.flush()
+        db_refresh_token = await self.get_refresh_token(old_refresh_token)
+        db_refresh_token.token = data["refresh_token"]
+        db_refresh_token.expires_at = data["expires_at"]
+        self.db_session.add(db_refresh_token)
+        await self.db_session.flush()
 
 
 class PermissionDAL:
@@ -192,12 +199,11 @@ class PermissionDAL:
         self.db_session = db_session
 
     async def create_permission(self, permission_data: PermissionCreate) -> Permission:
-        async with self.db_session.begin():
-            db_permission = Permission(**permission_data.dict())
-            self.db_session.add(db_permission)
-            await self.db_session.flush()
-            await self.db_session.refresh(db_permission)
-            return db_permission
+        db_permission = Permission(**permission_data.dict())
+        self.db_session.add(db_permission)
+        await self.db_session.flush()
+        await self.db_session.refresh(db_permission)
+        return db_permission
 
     async def get_permissions(self) -> Sequence[Permission]:
         query = select(Permission)
@@ -214,20 +220,18 @@ class PermissionDAL:
     async def update_permission(
         self, permission_pk: int, permission_data: PermissionUpdate
     ) -> Permission:
-        async with self.db_session.begin():
-            db_permission = await self.get_permission_by_pk(permission_pk)
-            update_data = permission_data.dict(exclude_unset=True)
-            for key, value in update_data.items():
-                setattr(db_permission, key, value)
-            await self.db_session.flush()
-            await self.db_session.refresh(db_permission)
-            return db_permission
+        db_permission = await self.get_permission_by_pk(permission_pk)
+        update_data = permission_data.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(db_permission, key, value)
+        await self.db_session.flush()
+        await self.db_session.refresh(db_permission)
+        return db_permission
 
     async def delete_permission(self, permission_pk: int):
-        async with self.db_session.begin():
-            db_permission = await self.get_permission_by_pk(permission_pk)
-            await self.db_session.delete(db_permission)
-            await self.db_session.flush()
+        db_permission = await self.get_permission_by_pk(permission_pk)
+        await self.db_session.delete(db_permission)
+        await self.db_session.flush()
 
 
 class RoleDAL:
@@ -237,12 +241,11 @@ class RoleDAL:
         self.db_session = db_session
 
     async def create_role(self, role_data: RoleCreate) -> Role:
-        async with self.db_session.begin():
-            db_role = Role(**role_data.dict())
-            self.db_session.add(db_role)
-            await self.db_session.flush()
-            await self.db_session.refresh(db_role)
-            return db_role
+        db_role = Role(**role_data.dict())
+        self.db_session.add(db_role)
+        await self.db_session.flush()
+        await self.db_session.refresh(db_role)
+        return db_role
 
     async def get_roles(self) -> Sequence[Role]:
         query = select(Role)
@@ -257,20 +260,18 @@ class RoleDAL:
         return role
 
     async def update_role(self, role_pk: int, role_data: RoleUpdate) -> Role:
-        async with self.db_session.begin():
-            db_role = await self.get_role_by_pk(role_pk)
-            update_data = role_data.dict(exclude_unset=True)
-            for key, value in update_data.items():
-                setattr(db_role, key, value)
-            await self.db_session.flush()
-            await self.db_session.refresh(db_role)
-            return db_role
+        db_role = await self.get_role_by_pk(role_pk)
+        update_data = role_data.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(db_role, key, value)
+        await self.db_session.flush()
+        await self.db_session.refresh(db_role)
+        return db_role
 
     async def delete_role(self, role_pk: int):
-        async with self.db_session.begin():
-            db_role = await self.get_role_by_pk(role_pk)
-            await self.db_session.delete(db_role)
-            await self.db_session.flush()
+        db_role = await self.get_role_by_pk(role_pk)
+        await self.db_session.delete(db_role)
+        await self.db_session.flush()
 
 
 class RolePermissionDAL:
@@ -305,16 +306,15 @@ class RolePermissionDAL:
         return role_permission
 
     async def create_role_permission(self, data: RolePermissionData) -> RolePermission:
-        async with self.db_session.begin():
-            role = await self._get_role_by_name(data.role)
-            permission = await self._get_permission_by_name(data.permission)
-            db_role_permission = RolePermission(
-                permission_pk=permission.permission_pk, role_pk=role.role_pk
-            )
-            self.db_session.add(db_role_permission)
-            await self.db_session.flush()
-            await self.db_session.refresh(db_role_permission)
-            return db_role_permission
+        role = await self._get_role_by_name(data.role)
+        permission = await self._get_permission_by_name(data.permission)
+        db_role_permission = RolePermission(
+            permission_pk=permission.permission_pk, role_pk=role.role_pk
+        )
+        self.db_session.add(db_role_permission)
+        await self.db_session.flush()
+        await self.db_session.refresh(db_role_permission)
+        return db_role_permission
 
     async def get_role_with_permissions(self, role_pk: int) -> Role:
         query = (
@@ -322,10 +322,9 @@ class RolePermissionDAL:
             .options(selectinload(Role.permissions))
             .where(Role.role_pk == role_pk)
         )
-        async with self.db_session.begin():
-            result = await self.db_session.execute(query)
-            role = result.scalar_one()
-            return role
+        result = await self.db_session.execute(query)
+        role = result.scalar_one()
+        return role
 
     async def get_permission_with_roles(self, permission_pk: int) -> Permission:
         query = (
@@ -333,17 +332,15 @@ class RolePermissionDAL:
             .options(selectinload(Permission.roles))
             .where(Permission.permission_pk == permission_pk)
         )
-        async with self.db_session.begin():
-            result = await self.db_session.execute(query)
-            permission = result.scalar_one()
-            return permission
+        result = await self.db_session.execute(query)
+        permission = result.scalar_one()
+        return permission
 
-    async def delete_role_permission(self, data: RolePermissionData):
-        async with self.db_session.begin():
-            role = await self._get_role_by_name(data.role)
-            permission = await self._get_permission_by_name(data.permission)
-            db_role_permission = await self._get_role_permission(
-                role_pk=role.role_pk, permission_pk=permission.permission_pk
-            )
-            await self.db_session.delete(db_role_permission)
-            await self.db_session.flush()
+    async def delete_role_permission(self, role_name: str, permission_name: str):
+        role = await self._get_role_by_name(role_name)
+        permission = await self._get_permission_by_name(permission_name)
+        db_role_permission = await self._get_role_permission(
+            role_pk=role.role_pk, permission_pk=permission.permission_pk
+        )
+        await self.db_session.delete(db_role_permission)
+        await self.db_session.flush()
